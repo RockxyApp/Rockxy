@@ -51,7 +51,7 @@ private enum DirectProxyWatchdog {
             let backupURL = URL(fileURLWithPath: backupPath)
             logger.info("RockxyHelperTool running direct proxy watchdog for parent pid \(parentPID)")
 
-            DirectProxyWatchdogRuntime.watch(
+            let outcome = DirectProxyWatchdogRuntime.watch(
                 parentIsLive: {
                     parentSessionIsLive(pid: parentPID, startSignature: parentStartSignature)
                 },
@@ -62,6 +62,12 @@ private enum DirectProxyWatchdog {
                         parentStartSignature: parentStartSignature
                     )
                 },
+                backupIsRefused: {
+                    if case .refused = classifyBackup(at: backupURL) {
+                        return true
+                    }
+                    return false
+                },
                 restore: {
                     restoreIfNeeded(
                         from: backupURL,
@@ -71,6 +77,15 @@ private enum DirectProxyWatchdog {
                 },
                 waitBeforeNextPoll: { Thread.sleep(forTimeInterval: pollInterval) }
             )
+            if outcome == .refused {
+                // Not exit 0: that means "resolved". launchd keeps this job's last exit status, and
+                // the app reads it from the same `launchctl list` it already uses to retire
+                // watchdogs, so a record this watchdog would not act on is not a silent no-op.
+                logger.fault(
+                    "Direct proxy watchdog stopped: its backup was refused on \(DirectProxyWatchdogRuntime.refusalPollLimit) consecutive polls, so nothing will be restored by this job"
+                )
+                Foundation.exit(DirectProxyWatchdogExit.refusedBackup)
+            }
             return true
         }
     }
@@ -391,14 +406,63 @@ private enum DirectProxyWatchdog {
         try ProxyBackupFilePublication.publish(PropertyListEncoder().encode(backup), to: backupURL)
     }
 
+    /// What reading the watchdog's backup came to. Only `.refused` is a verdict on the record;
+    /// `.unavailable` is a read that may succeed next time.
+    private enum BackupLoad {
+        case missing
+        case loaded(DirectProxyBackup)
+        /// An I/O failure that can clear by itself. Retried, never escalated.
+        case unavailable
+        /// The record failed the trust gate, could not be decoded, or is implausible. It will fail
+        /// the same way until somebody changes it.
+        case refused
+    }
+
     private static func loadBackup(from backupURL: URL) -> DirectProxyBackup? {
-        do {
-            let data = try Data(contentsOf: backupURL)
-            return try PropertyListDecoder().decode(DirectProxyBackup.self, from: data)
-        } catch {
-            logger.error("Direct proxy watchdog could not load backup: \(error.localizedDescription)")
-            return nil
+        if case let .loaded(backup) = classifyBackup(at: backupURL) {
+            return backup
         }
+        return nil
+    }
+
+    private static func classifyBackup(at backupURL: URL) -> BackupLoad {
+        guard FileManager.default.fileExists(atPath: backupURL.path) else {
+            return .missing
+        }
+        // Unlike the root-run helper paths, this record belongs to the user the watchdog was
+        // submitted as, so that user, not uid 0, is the owner it must have. A refusal is loud and
+        // leaves the file alone: the watchdog never acts on a record it could not vouch for.
+        let data: Data
+        do {
+            data = try ProxyBackupFileTrust.readTrustedFile(at: backupURL, trustedOwner: geteuid())
+        } catch let refusal as ProxyBackupFileTrust.Refusal {
+            logger.fault("Direct proxy watchdog refused its backup: \(refusal.description, privacy: .public)")
+            return refusal.isTransient ? .unavailable : .refused
+        } catch {
+            logger.error("Direct proxy watchdog could not read its backup: \(error.localizedDescription)")
+            return .unavailable
+        }
+        let backup: DirectProxyBackup
+        do {
+            backup = try PropertyListDecoder().decode(DirectProxyBackup.self, from: data)
+        } catch {
+            logger.fault("Direct proxy watchdog could not decode its backup: \(error.localizedDescription)")
+            return .refused
+        }
+        // An emptied list is legitimate here (recovery narrows it), so only the rest is checked.
+        if let reason = ProxyBackupContentValidation.failure(
+            ownedPort: backup.rockxyPort,
+            serviceNames: backup.services.map(\.service),
+            servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+            serviceHosts: backup.services.flatMap { [$0.httpHost, $0.httpsHost, $0.socksHost] },
+            pacURLs: backup.services.map(\.pacURL),
+            largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
+            allowsEmptyServices: true
+        ) {
+            logger.fault("Direct proxy watchdog refused its backup: \(reason, privacy: .public)")
+            return .refused
+        }
+        return .loaded(backup)
     }
 
     /// An unreadable record is retained and retried. A readable record owned by a newer session
@@ -556,24 +620,31 @@ private enum DirectProxyWatchdog {
             ])
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: networkSetupPath)
-        process.arguments = arguments
+        let result: BoundedHelperCommand.CapturedOutput
+        do {
+            result = try BoundedHelperCommand.runCapturingStandardOutput(
+                executable: URL(fileURLWithPath: networkSetupPath),
+                arguments: arguments,
+                timeout: BoundedHelperCommand.networkConfigurationTimeout
+            )
+        } catch {
+            // The watchdog's whole job is to finish a stranded restore. A command it could not
+            // bound must fail the step so the journal keeps it, never read as a clean reading.
+            throw NSError(domain: "DirectProxyWatchdog", code: -1, userInfo: [
+                NSLocalizedDescriptionKey:
+                    "networksetup \(arguments.joined(separator: " ")) could not be run: \(String(describing: error))",
+            ])
+        }
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-
-        guard process.terminationStatus == 0 else {
+        // Decoded leniently: both buffers are byte budgets, so a strict decode would throw away a
+        // whole reading whose last character happens to be cut mid-sequence.
+        // swiftlint:disable:next optional_data_string_conversion
+        let stdout = String(decoding: result.standardOutput, as: UTF8.self)
+        guard result.status == 0 else {
+            // swiftlint:disable:next optional_data_string_conversion
+            let stderr = String(decoding: result.diagnostic, as: UTF8.self)
             let output = stderr.isEmpty ? stdout : stderr
-            throw NSError(domain: "DirectProxyWatchdog", code: Int(process.terminationStatus), userInfo: [
+            throw NSError(domain: "DirectProxyWatchdog", code: Int(result.status), userInfo: [
                 NSLocalizedDescriptionKey: "networksetup \(arguments.joined(separator: " ")) failed: \(output)",
             ])
         }

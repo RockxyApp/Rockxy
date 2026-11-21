@@ -58,6 +58,29 @@ struct HistoryRetentionTests {
         #expect(coordinator.filteredRows.first?.clientApp == "Safari")
     }
 
+    @Test("Stale ownership cannot refresh a matching UUID", arguments: [0, 1, 2])
+    @MainActor
+    func staleOwnershipCannotRefreshMatchingRow(kind: Int) {
+        let coordinator = MainContentCoordinator()
+        let row = TestFixtures.makeTransaction(state: .active)
+        coordinator.processActiveProjectTestBatch([row])
+        let active = coordinator.activeCaptureContext
+        let stale = TrafficCaptureContext(
+            projectID: kind == 0 ? UUID() : active.projectID,
+            sessionID: kind == 1 ? UUID() : active.sessionID,
+            generation: kind == 2 ? active.generation &+ 1 : active.generation
+        )
+        // Simulate an imported identity collision with a delayed callback from another context.
+        let update = HTTPTransaction(id: row.id, request: row.request, state: .failed)
+        update.assignCaptureContextIfMissing(stale)
+        update.clientApp = "Foreign app"
+        coordinator.handleLiveTransactionUpdate([update])
+        coordinator.handleClientAppEnrichment([update])
+        #expect(coordinator.filteredRows.first?.state == .active)
+        #expect(coordinator.filteredRows.first?.clientApp == nil)
+        #expect(!coordinator.appNodes.contains { $0.name == "Foreign app" })
+    }
+
     @Test("A WebSocket session re-delivered on close updates its row instead of duplicating it")
     @MainActor
     func webSocketRedeliveryUpdatesExistingRow() {
@@ -75,11 +98,34 @@ struct HistoryRetentionTests {
         #expect(coordinator.transactions.count == 1)
         #expect(coordinator.transactions.first?.state == .active)
 
-        // Delivered again when the socket closes: the same row becomes completed.
+        // The producer finalizes the model before delivering the close event.
+        session.state = .completed
         coordinator.processActiveProjectTestBatch([session])
         #expect(coordinator.transactions.count == 1)
         #expect(coordinator.transactions.first?.id == session.id)
         #expect(coordinator.transactions.first?.state == .completed)
+    }
+
+    @Test("Live redelivery preserves failures and never duplicates SSE rows")
+    @MainActor
+    func liveRedeliveryPreservesTerminalTruth() {
+        let coordinator = MainContentCoordinator()
+        let socketRequest = TestFixtures.makeRequest(url: "ws://test.invalid/socket")
+        let socket = HTTPTransaction(
+            request: socketRequest, state: .active,
+            webSocketConnection: WebSocketConnection(upgradeRequest: socketRequest)
+        )
+        let stream = TestFixtures.makeTransaction(state: .active)
+        coordinator.processActiveProjectTestBatch([socket, stream])
+        coordinator.processActiveProjectTestBatch([socket, stream])
+        #expect(coordinator.transactions.count == 2)
+        #expect(coordinator.transactions.allSatisfy { $0.state == .active })
+        socket.state = .failed
+        stream.state = .failed
+        coordinator.processActiveProjectTestBatch([socket, stream, socket, stream])
+        #expect(coordinator.transactions.count == 2)
+        #expect(coordinator.filteredRows.count == 2)
+        #expect(coordinator.filteredRows.allSatisfy { $0.state == .failed })
     }
 
     @Test("Bulk client attribution moves every observed host count")
@@ -415,6 +461,65 @@ struct HistoryRetentionTests {
 
         #expect(coordinator.transactions.map(\.id) == [success.id])
         #expect(coordinator.errorCount == 0)
+    }
+
+    @Test("Memory pressure spares a small session, then evicts a bounded slice once per interval")
+    @MainActor
+    func memoryPressureEvictionIsFlooredAndThrottled() {
+        let coordinator = MainContentCoordinator()
+        let floor = MainContentCoordinator.memoryPressureHistoryFloor
+        coordinator.transactions = (0 ..< floor).map {
+            TestFixtures.makeTransaction(url: "https://pressure.example.com/\($0)")
+        }
+
+        // At the floor nothing is reclaimed: pressure caused by another process must not
+        // cost the user the session they are reading.
+        let start = Date()
+        coordinator.evictForMemoryPressure(isCritical: false, now: start)
+        #expect(coordinator.transactions.count == floor)
+
+        coordinator.transactions += (0 ..< 50).map {
+            TestFixtures.makeTransaction(url: "https://pressure.example.com/extra/\($0)")
+        }
+        coordinator.evictForMemoryPressure(isCritical: false, now: start)
+        #expect(coordinator.transactions.count == 150)
+
+        // A burst of events must not rebuild every index once per event.
+        coordinator.evictForMemoryPressure(isCritical: false, now: start.addingTimeInterval(1))
+        #expect(coordinator.transactions.count == 150)
+
+        // Once the interval has passed, eviction resumes -- but only while history is
+        // still above the floor. The 150 rows left above are BELOW it, so topping the
+        // history back up is part of the assertion, not setup noise: without it this
+        // step would prove nothing except that the floor works, which the first step
+        // already covers.
+        coordinator.transactions += (0 ..< 150).map {
+            TestFixtures.makeTransaction(url: "https://pressure.example.com/more/\($0)")
+        }
+        let afterInterval = start
+            .addingTimeInterval(MainContentCoordinator.memoryPressureEvictionInterval + 1)
+        coordinator.evictForMemoryPressure(isCritical: false, now: afterInterval)
+        #expect(coordinator.transactions.count == 200)
+    }
+
+    @Test("Critical pressure reclaims imported rows the live cap never trims")
+    @MainActor
+    func criticalMemoryPressureReclaimsImportedRows() {
+        let coordinator = MainContentCoordinator()
+        let imported = (0 ..< 20).map { index -> HTTPTransaction in
+            let transaction = TestFixtures.makeTransaction(url: "https://imported.example.com/\(index)")
+            transaction.isImported = true
+            return transaction
+        }
+        coordinator.transactions = imported + (0 ..< 380).map {
+            TestFixtures.makeTransaction(url: "https://live.example.com/\($0)")
+        }
+
+        coordinator.evictForMemoryPressure(isCritical: true, now: Date())
+
+        // A quarter of 400 is 100, but critical pressure reclaims at least 250 rows.
+        #expect(coordinator.transactions.count == 150)
+        #expect(!coordinator.transactions.contains { $0.isImported })
     }
 
     @Test("reportAcceptedCount triggers eviction sized to the exact overflow")

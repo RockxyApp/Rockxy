@@ -1233,7 +1233,7 @@ struct ProxyStartTrustValidationContractTests {
             return nil
         }
         let remainder = source[start.upperBound...]
-        guard let end = remainder.range(of: "func stopProxy() {") else {
+        guard let end = remainder.range(of: "func stopProxy(") else {
             return String(remainder)
         }
         return String(remainder[..<end.lowerBound])

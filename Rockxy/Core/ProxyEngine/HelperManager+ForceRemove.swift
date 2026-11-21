@@ -385,41 +385,57 @@ extension HelperManager {
         return "do shell script \"\(escapedScript)\" with administrator privileges"
     }
 
+    /// Upper bound on the privileged force-remove command.
+    ///
+    /// This is a human-in-the-loop budget, not a latency target. The shell script itself is a
+    /// handful of `launchctl` and `rm` calls that finish in under a second; everything else is
+    /// `osascript` sitting on the modal administrator-password panel, which macOS never dismisses
+    /// on its own. Before this bound existed, a user who walked away from that panel parked the
+    /// waiting thread for the rest of the session and the force-remove flow never returned. Ten
+    /// minutes is far past any plausible time to fetch a password and still finite, which is the
+    /// whole point. `BoundedHelperCommand` cannot serve this call site: it refuses any budget
+    /// over thirty seconds, which is correct for the helper's own non-interactive commands and
+    /// wrong for one that waits on a person.
+    nonisolated static let privilegedScriptTimeout: TimeInterval = 600
+
     nonisolated static func runPrivilegedShellScript(_ shellScript: String) async throws -> String {
         let appleScript = privilegedAppleScript(for: shellScript)
 
-        return try await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-e", appleScript]
+        // Both of the child's streams share one pipe, as they always did, so the reported
+        // transcript keeps its original interleaving. The pipe is drained while the child runs
+        // rather than after it exits, and the run is bounded; `runDetached` also keeps the
+        // blocking waits off the Swift cooperative pool, where they used to hold a thread of a
+        // fixed-size pool for as long as the password panel stayed up.
+        let result: BoundedProcessRun.Output
+        do {
+            result = try await BoundedProcessRun.runDetached(
+                executable: URL(fileURLWithPath: "/usr/bin/osascript"),
+                arguments: ["-e", appleScript],
+                timeout: privilegedScriptTimeout,
+                mergesStandardError: true
+            )
+        } catch BoundedProcessRun.Failure.timedOut {
+            // The child was killed, so reporting it as signalled is what actually happened.
+            throw ForceRemoveError.commandTerminated(signal: SIGKILL, output: "")
+        }
 
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
+        let output = result.combinedText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            try process.run()
-            process.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-            guard process.terminationStatus == 0 else {
-                if process.terminationReason == .uncaughtSignal {
-                    throw ForceRemoveError.commandTerminated(
-                        signal: process.terminationStatus,
-                        output: output
-                    )
-                }
-
-                throw ForceRemoveError.commandFailed(
-                    exitCode: process.terminationStatus,
+        guard result.status == 0 else {
+            if result.wasSignalled {
+                throw ForceRemoveError.commandTerminated(
+                    signal: result.status,
                     output: output
                 )
             }
 
-            return output
-        }.value
+            throw ForceRemoveError.commandFailed(
+                exitCode: result.status,
+                output: output
+            )
+        }
+
+        return output
     }
 
     nonisolated private static func loadedJobVerificationCommand(label: String) -> String {

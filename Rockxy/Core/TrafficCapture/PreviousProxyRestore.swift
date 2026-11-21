@@ -42,6 +42,13 @@ struct PreviousProxyRestoreResult: Equatable {
     var restoredServices: [String] = []
     /// Services whose settings changed again after the report, so nothing was written to them.
     var changedServices: [String] = []
+    /// Services whose write was attempted and failed. Every other service is still attempted,
+    /// because leaving one unattempted is what strands it on a port nothing listens on.
+    var failedServices: [String] = []
+
+    var isComplete: Bool {
+        failedServices.isEmpty
+    }
 }
 
 // MARK: - PreviousProxyRestorePolicy
@@ -73,6 +80,42 @@ enum PreviousProxyRestorePolicy {
     /// True when an enabled endpoint of the snapshot is Rockxy's own loopback listener.
     static func pointsAtRockxy(_ snapshot: ServiceProxySnapshot, port: Int) -> Bool {
         LoopbackProxyOwnershipPolicy.enabledLoopbackPorts(in: [snapshot]).contains(port)
+    }
+
+    /// Writes previous settings back one service at a time, each independent of the others.
+    ///
+    /// A service is isolated because writing can fail for reasons that say nothing about the
+    /// next service: `networksetup` is bounded rather than prevented from wedging, so one
+    /// stuck call used to abandon the whole sweep. Every service left after it then stayed
+    /// pointed at the port capture had just stopped listening on, which is the user losing
+    /// network on that interface, and nothing recorded which services those were.
+    ///
+    /// `liveSnapshot` re-reads the service so a write only lands while it still holds exactly
+    /// what the report observed, and a service that cannot be read is reported as changed
+    /// rather than written blind.
+    static func restore(
+        _ entries: [UnrestoredPreviousProxy],
+        liveSnapshot: (String) -> ServiceProxySnapshot?,
+        write: (UnrestoredPreviousProxy) throws -> Void,
+        onFailure: (String, Error) -> Void = { _, _ in }
+    )
+        -> PreviousProxyRestoreResult
+    {
+        var result = PreviousProxyRestoreResult()
+        for entry in entries {
+            guard let live = liveSnapshot(entry.service), live == entry.current else {
+                result.changedServices.append(entry.service)
+                continue
+            }
+            do {
+                try write(entry)
+                result.restoredServices.append(entry.service)
+            } catch {
+                onFailure(entry.service, error)
+                result.failedServices.append(entry.service)
+            }
+        }
+        return result
     }
 
     /// The services whose pre-capture settings routed traffic and are no longer in effect.

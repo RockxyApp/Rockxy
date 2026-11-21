@@ -64,6 +64,20 @@ final class ScriptFlowStateStore: @unchecked Sendable {
         return existing ?? JSValue(newObjectIn: context)
     }
 
+    /// Abandons a flow whose request hook began it but whose response hook will never
+    /// run — blocked, mocked, failed, timed out, or a script with no state-carrying
+    /// `onResponse`. Without this the entry would hold its `JSValue` until `capacity`
+    /// newer flows evicted it, so during a long capture the store stays full of dead
+    /// flows and evicts live ones instead.
+    func discardFlow(_ flowID: UUID) {
+        lock.withLock {
+            guard states.removeValue(forKey: flowID) != nil else {
+                return
+            }
+            order.removeAll { $0 == flowID }
+        }
+    }
+
     // MARK: Private
 
     private let lock = NSLock()

@@ -11,16 +11,24 @@ enum GraphQLDetector {
     static let maxBodyBytes = 1_048_576
 
     static func detect(request: HTTPRequestData) -> GraphQLInfo? {
-        let pathLooksGraphQL = request.path.lowercased().contains("graphql")
         let fields: [String: Any]
+        // The method decides first: a GET/HEAD/OPTIONS request used to pay for a lowercased
+        // copy of its path before reaching this switch, on every captured request.
         switch request.method.uppercased() {
         case "POST":
             // Batched requests (a JSON array) carry several operations; they are not a
             // single operation and are left to the generic inspectors.
-            guard let body = request.body,
-                  body.count <= maxBodyBytes,
-                  let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else
-            {
+            guard let body = request.body, body.count <= maxBodyBytes else {
+                return nil
+            }
+            let pathLooksGraphQL = pathSuggestsGraphQL(request.path)
+            // The accept test below needs either a GraphQL-looking path or a `query` member, so
+            // run its byte-level approximation before the parse: an ordinary REST payload was
+            // otherwise expanded into an object graph on the event loop and thrown away.
+            guard pathLooksGraphQL || bodyMayCarryGraphQLDocument(body) else {
+                return nil
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
                 return nil
             }
             // Endpoints such as `/api` or `/gql` are recognized by the shape of the body: a
@@ -30,7 +38,7 @@ enum GraphQLDetector {
             }
             fields = json
         case "GET":
-            guard pathLooksGraphQL else {
+            guard pathSuggestsGraphQL(request.path) else {
                 return nil
             }
             // GraphQL over GET carries the document (or a persisted-query hash) in the URL.
@@ -74,6 +82,47 @@ enum GraphQLDetector {
     }
 
     // MARK: Private
+
+    private static let jsonWhitespace: Set<UInt8> = [0x20, 0x09, 0x0A, 0x0D]
+
+    /// First bytes of a UTF-8 JSON value that cannot decode to an object: array, string,
+    /// number, `true`, `false`, `null`.
+    private static let jsonNonObjectStarts: Set<UInt8> = Set(Array("[\"-0123456789tfn".utf8))
+
+    /// A `query` member is written as this exact key token by any JSON encoder.
+    private static let queryKeyBytes = Data("\"query\"".utf8)
+
+    /// Case-insensitive `graphql` test that allocates nothing; `lowercased().contains` paid a
+    /// whole-path ICU case mapping per request.
+    private static func pathSuggestsGraphQL(_ path: String) -> Bool {
+        path.range(of: "graphql", options: .caseInsensitive) != nil
+    }
+
+    /// Cheap approximation of the post-parse accept test, used to skip the parse entirely. It
+    /// must never reject a body the parse would have accepted: `detect` only accepts a JSON
+    /// object carrying a `query` member, and that key reaches the wire as the literal bytes
+    /// `"query"`, so a UTF-8 object without them can never become an operation. A first byte
+    /// that rules out an object is rejected outright; anything else — notably the UTF-16/32
+    /// encodings `JSONSerialization` also sniffs — still pays the parse rather than risk a miss.
+    private static func bodyMayCarryGraphQLDocument(_ body: Data) -> Bool {
+        guard let firstByte = body.first(where: { !jsonWhitespace.contains($0) }) else {
+            return false
+        }
+        guard firstByte == UInt8(ascii: "{") else {
+            return !jsonNonObjectStarts.contains(firstByte)
+        }
+        // A LITTLE-ENDIAN UTF-16/32 object also begins with the byte `{`, and its `"query"` key
+        // reaches the wire with a NUL after every character, so looking for the ASCII bytes
+        // would miss a document `JSONSerialization` reads perfectly well -- which is exactly
+        // what the encoding test caught. UTF-8 JSON cannot carry a NUL unescaped (RFC 8259), so
+        // a NUL this early proves the body is one of those encodings, and the only sound answer
+        // is to pay the parse. Big-endian and BOM-prefixed forms do not start with `{` at all,
+        // so they never reach here.
+        if body.prefix(4).contains(0) {
+            return true
+        }
+        return body.range(of: queryKeyBytes) != nil
+    }
 
     /// True when `text` starts like a GraphQL executable document: an anonymous selection set
     /// or a `query` / `mutation` / `subscription` keyword. Plain search strings do not.

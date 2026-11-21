@@ -41,6 +41,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         shouldBypassUserModifications: @escaping @Sendable (HTTPRequestData) -> Bool = { _ in false },
         clientIdentityHandle: ClientIdentityHandle? = nil,
         clientConnectionDescriptor: ProxyConnectionDescriptor? = nil,
+        localAddresses: [String],
         liveTunnelRegistry: LiveTunnelRegistry? = nil,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
         onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
@@ -60,6 +61,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         self.shouldBypassUserModifications = shouldBypassUserModifications
         self.clientIdentityHandle = clientIdentityHandle
         self.clientConnectionDescriptor = clientConnectionDescriptor
+        self.localAddresses = localAddresses
         self.liveTunnelRegistry = liveTunnelRegistry
         self.onTransactionComplete = onTransactionComplete
         self.onBreakpointHit = onBreakpointHit
@@ -140,6 +142,13 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         // Client disconnected while a request breakpoint may still be paused: cancel
         // the waiting Task so the queue drains and no upstream work is initiated.
         cancelPendingBreakpoint()
+        // Same point for the rule/script hook in flight. `channelInactive` and not
+        // `handlerRemoved`, for the reason `notifyClientDisconnected` documents below: this
+        // handler is also removed on a WebSocket upgrade and by `beginTunnel`, neither of
+        // which ends the exchange, and cancelling a live hook is how a Block rule would
+        // quietly become a pass-through.
+        hookTask.cancel()
+        notifyClientDisconnected()
         context.fireChannelInactive()
     }
 
@@ -164,6 +173,10 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     private let shouldBypassUserModifications: @Sendable (HTTPRequestData) -> Bool
     private let clientIdentityHandle: ClientIdentityHandle?
     private let clientConnectionDescriptor: ProxyConnectionDescriptor?
+    /// The machine's LAN IPv4 addresses, resolved once by the server and handed to every
+    /// connection. The loop guard consults them on every CONNECT, SOCKS admission and plain
+    /// request, so resolving them per request put a `getifaddrs` walk on the event loop.
+    private let localAddresses: [String]
     private let liveTunnelRegistry: LiveTunnelRegistry?
     private let onTransactionComplete: @Sendable (HTTPTransaction) -> Void
     private let onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (
@@ -172,6 +185,16 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     ))?
     private let breakpointBridgeTracker: BreakpointBridgeTracker?
     private var pendingThrottleTask: Scheduled<Void>?
+
+    /// The response handler of the request currently in flight upstream, so the client's
+    /// disconnect can tear it down.
+    ///
+    /// Weak on purpose: the upstream pipeline owns the handler, and a strong reference here
+    /// would outlive the request and pin its captured bodies for the whole keep-alive
+    /// connection — the leak this reference exists to replace. Only ever touched on this
+    /// channel's event loop, which is also the loop the upstream channel is bootstrapped on.
+    private weak var currentUpstreamResponseHandler: UpstreamResponseHandler?
+
     /// Network conditions matched by the CONNECT request; applied to an undecrypted tunnel.
     private var connectNetworkProfile: NetworkConditionProfile?
     private var pendingBreakpointPhase: BreakpointRulePhase?
@@ -183,28 +206,16 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     /// and drain the paused item instead of leaking the row and its continuation.
     private var pendingBreakpointTask: Task<Void, Never>?
 
+    /// The rule-evaluation / request-script hook this connection has in flight. One slot is
+    /// enough because those are sequential phases of a single request.
+    private let hookTask = ProxyHookTaskSlot()
+
     private var requestHead: HTTPRequestHead?
     private var requestBody: ByteBuffer?
     private var requestStartTime: DispatchTime?
     private var requestCaptureContext: TrafficCaptureContext?
     private var clientSourcePort: UInt16?
     private var requestBodyLimitState = RequestBodyLimitState()
-
-    /// Builds an `HTTPResponseData` from a resolved Map Local payload, deriving the standard
-    /// reason phrase when the payload did not carry one.
-    nonisolated private static func mapLocalResponse(
-        from payload: MapLocalResponseResolver.Payload
-    )
-        -> HTTPResponseData
-    {
-        let message = payload.statusMessage ?? HTTPResponseStatus(statusCode: payload.statusCode).reasonPhrase
-        return HTTPResponseData(
-            statusCode: payload.statusCode,
-            statusMessage: message,
-            headers: MapLocalMarkerSetting.markedHeaders(payload.headers),
-            body: payload.body
-        )
-    }
 
     nonisolated private func makeTransactionCallback(
         for matchedRule: ProxyRule?
@@ -234,9 +245,6 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         proxyHandlerLogger.info("Processing \(head.method.rawValue) \(head.uri)")
 
         let requestData = buildRequestData(from: head)
-        let headers = requestData.headers
-        let method = requestData.method
-        let url = requestData.url
 
         // Internal health probes must measure the listener and upstream relay itself, not
         // user-authored breakpoints, throttles, scripts, cache mutation, or External Proxy.
@@ -246,6 +254,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: head,
                 requestData: requestData,
+                graphQLInfo: GraphQLDetector.detect(request: requestData),
                 bypassUserModifications: true,
                 callback: onTransactionComplete
             )
@@ -255,24 +264,34 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         // Rule evaluation is async (actor-isolated), so bridge to NIO's EventLoopFuture world
         let eventLoop = context.eventLoop
         let ruleEngine = self.ruleEngine
-        let operationName = GraphQLDetector.detect(request: requestData)?.operationName
+        // Detected once per request: the body parse is the dominant per-request cost, and every
+        // path that keeps this request's URL and body carries the result instead of repeating it.
+        let graphQLInfo = GraphQLDetector.detect(request: requestData)
         let identityHandle = self.clientIdentityHandle
 
-        eventLoop.makeFutureWithTask {
-            await ProxyHandlerShared.evaluateRules(
-                ruleEngine,
-                request: requestData,
-                graphQLOperationName: operationName,
-                clientApplication: { await identityHandle?.awaitIdentity() }
-            )
-        }.whenComplete { [weak self] result in
+        // Retained and liveness-gated through `hookTask` instead of `makeFutureWithTask`, which
+        // throws its Task handle away. The gate is the part that matters here: an evaluation
+        // that resolved after the client had gone still ran this continuation, and
+        // `forwardRequest` below acquires a `ConnectionLimiter` slot and opens a real origin
+        // socket for a client that is no longer there. See `ProxyHookTaskSlot`.
+        hookTask.run(
+            on: eventLoop,
+            hook: {
+                await ProxyHandlerShared.evaluateRules(
+                    ruleEngine,
+                    request: requestData,
+                    graphQLOperationName: graphQLInfo?.operationName,
+                    clientApplication: { await identityHandle?.awaitIdentity() }
+                )
+            },
+            isLive: { context.channel.isActive }
+        ) { [weak self] evaluation in
             guard let self else {
                 return
             }
-            let evaluation = try? result.get()
-            let breakpointRule = evaluation?.breakpoint
-            let matchedRule = evaluation?.matched
-            let headerRules = evaluation?.headerRules ?? []
+            let breakpointRule = evaluation.breakpoint
+            let matchedRule = evaluation.matched
+            let headerRules = evaluation.headerRules
             let ruleForTransaction = ProxyHandlerShared.transactionRule(
                 breakpointRule: breakpointRule,
                 matchedRule: matchedRule,
@@ -293,6 +312,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                             context: context,
                             head: head,
                             requestData: requestData,
+                            graphQLInfo: graphQLInfo,
                             callback: callback,
                             matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
                         )
@@ -349,6 +369,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     context: context,
                     head: rewritten.head,
                     requestData: rewritten.requestData,
+                    graphQLInfo: graphQLInfo,
                     callback: self.makeTransactionCallback(for: breakpointRule),
                     matchContext: MapLocalMatchContext(matchCondition: breakpointRule.matchCondition)
                 )
@@ -361,6 +382,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     context: context,
                     head: rewritten.head,
                     requestData: rewritten.requestData,
+                    graphQLInfo: graphQLInfo,
                     callback: callback,
                     matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
                 )
@@ -373,6 +395,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: rewritten.head,
                 requestData: rewritten.requestData,
+                graphQLInfo: graphQLInfo,
                 callback: forwardCallback
             )
         }
@@ -383,25 +406,50 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard let scriptPluginManager else {
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+            forwardRequest(
+                context: context,
+                head: head,
+                requestData: requestData,
+                graphQLInfo: graphQLInfo,
+                callback: callback
+            )
             return
         }
-        context.eventLoop.makeFutureWithTask {
-            await scriptPluginManager.runRequestHook(on: requestData)
-        }.whenSuccess { [weak self] outcome in
+        // Same slot the rule evaluation used: it has completed by the time this runs, so the
+        // phases of one request never contend for it. Gated for the same reason — a script
+        // backlog resolving after Stop must not forward, block or mock into a dead channel.
+        hookTask.run(
+            on: context.eventLoop,
+            hook: { await scriptPluginManager.runRequestHook(on: requestData) },
+            isLive: { context.channel.isActive }
+        ) { [weak self] outcome in
             guard let self else {
                 return
             }
             switch outcome {
             case let .forward(modifiedRequest):
-                self.forwardRequest(context: context, head: head, requestData: modifiedRequest, callback: callback)
+                // A script can rewrite the URL or the body, so the carried detection no longer
+                // describes this request.
+                self.forwardRequest(
+                    context: context,
+                    head: head,
+                    requestData: modifiedRequest,
+                    graphQLInfo: GraphQLDetector.detect(request: modifiedRequest),
+                    callback: callback
+                )
             case .blockLocally:
                 self.sendErrorResponse(context: context, status: 403, requestData: requestData, callback: callback)
             case let .mock(mockResponse):
-                self.sendResponse(context: context, responseData: mockResponse, requestData: requestData, callback: callback)
+                self.sendResponse(
+                    context: context,
+                    responseData: mockResponse,
+                    requestData: requestData,
+                    callback: callback
+                )
             case .mockFailure:
                 self.sendErrorResponse(context: context, status: 502, requestData: requestData, callback: callback)
             }
@@ -441,6 +489,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         callback: @escaping @Sendable (HTTPTransaction) -> Void,
         matchContext: MapLocalMatchContext? = nil
     ) {
@@ -461,6 +510,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                         statusCode: statusCode,
                         responseHeaders: responseHeaders,
                         requestData: requestData,
+                        graphQLInfo: graphQLInfo,
                         callback: callback,
                         matchContext: matchContext ?? MapLocalMatchContext(matchCondition: RuleMatchCondition())
                     )
@@ -472,6 +522,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                         statusCode: statusCode,
                         responseHeaders: responseHeaders,
                         requestData: requestData,
+                        graphQLInfo: graphQLInfo,
                         callback: callback
                     )
                 }
@@ -496,6 +547,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: modifiedHead,
                 requestData: modifiedData,
+                graphQLInfo: graphQLInfo,
                 responseHeaderOperations: responseOps.isEmpty ? nil : responseOps,
                 callback: callback
             )
@@ -505,6 +557,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: head,
                 requestData: requestData,
+                graphQLInfo: graphQLInfo,
                 configuration: configuration,
                 callback: callback
             )
@@ -515,7 +568,13 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 guard let self else {
                     return
                 }
-                self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+                self.forwardRequest(
+                    context: context,
+                    head: head,
+                    requestData: requestData,
+                    graphQLInfo: graphQLInfo,
+                    callback: callback
+                )
             }
 
         case let .networkCondition(preset, delayMs, custom):
@@ -538,6 +597,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     context: context,
                     head: head,
                     requestData: requestData,
+                    graphQLInfo: graphQLInfo,
                     networkConditionProfile: profile,
                     callback: callback
                 )
@@ -546,9 +606,21 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         case let .breakpoint(phase):
             pendingBreakpointPhase = phase
             if phase == .request || phase == .both {
-                handleBreakpoint(context: context, head: head, requestData: requestData, callback: callback)
+                handleBreakpoint(
+                    context: context,
+                    head: head,
+                    requestData: requestData,
+                    graphQLInfo: graphQLInfo,
+                    callback: callback
+                )
             } else {
-                forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+                forwardRequest(
+                    context: context,
+                    head: head,
+                    requestData: requestData,
+                    graphQLInfo: graphQLInfo,
+                    callback: callback
+                )
             }
         }
     }
@@ -557,11 +629,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         configuration: MapRemoteConfiguration,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard configuration.hasOverride else {
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+            forwardRequest(
+                context: context,
+                head: head,
+                requestData: requestData,
+                graphQLInfo: graphQLInfo,
+                callback: callback
+            )
             return
         }
 
@@ -581,88 +660,10 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
             context: context,
             head: rewrite.head,
             requestData: rewrite.requestData,
+            // The rewrite can move the request to another path, so it is detected again.
+            graphQLInfo: GraphQLDetector.detect(request: rewrite.requestData),
             callback: provenanceCallback
         )
-    }
-
-    nonisolated private func handleMapLocal(
-        context: ChannelHandlerContext,
-        head: HTTPRequestHead,
-        filePath: String,
-        statusCode: Int,
-        responseHeaders: [HTTPHeader],
-        requestData: HTTPRequestData,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void
-    ) {
-        guard let data = MapLocalFileValidator.loadFileData(at: filePath) else {
-            // Missing / unreadable / oversized target — serve the origin instead of a
-            // synthesized 404 so a broken mapping degrades to normal traffic.
-            proxyHandlerLogger.info("Map local file unavailable, falling back to origin")
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
-            return
-        }
-
-        let outcome = MapLocalResponseResolver.resolve(
-            fileData: data,
-            actionStatusCode: statusCode,
-            configuredHeaders: responseHeaders,
-            inferredContentType: MimeTypeResolver.mimeType(for: filePath)
-        )
-        switch outcome {
-        case let .serve(payload):
-            sendResponse(
-                context: context,
-                responseData: Self.mapLocalResponse(from: payload),
-                requestData: requestData,
-                callback: callback
-            )
-        case .fallbackToOrigin:
-            // Invalid status or a malformed HTTP-message-looking file — forward the origin.
-            proxyHandlerLogger.info("Map local response invalid, falling back to origin")
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
-        }
-    }
-
-    nonisolated private func handleMapLocalDirectory(
-        context: ChannelHandlerContext,
-        head: HTTPRequestHead,
-        directoryPath: String,
-        statusCode: Int,
-        responseHeaders: [HTTPHeader],
-        requestData: HTTPRequestData,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void,
-        matchContext: MapLocalMatchContext
-    ) {
-        let result = MapLocalDirectoryResolver.resolve(
-            requestURL: requestData.url.absoluteString,
-            matchContext: matchContext,
-            directoryPath: directoryPath
-        )
-        switch result {
-        case let .success(file):
-            let outcome = MapLocalResponseResolver.resolve(
-                fileData: file.data,
-                actionStatusCode: statusCode,
-                configuredHeaders: responseHeaders,
-                inferredContentType: file.mimeType
-            )
-            switch outcome {
-            case let .serve(payload):
-                sendResponse(
-                    context: context,
-                    responseData: Self.mapLocalResponse(from: payload),
-                    requestData: requestData,
-                    callback: callback
-                )
-            case .fallbackToOrigin:
-                proxyHandlerLogger.info("Map local directory response invalid, falling back to origin")
-                forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
-            }
-        case .failure:
-            // Unresolved / invalid target — fall back to the origin request.
-            proxyHandlerLogger.info("Map local directory unresolved, falling back to origin")
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
-        }
     }
 
     /// Pauses the request and presents the breakpoint UI for user decision. The NIO
@@ -672,11 +673,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard let onBreakpointHit else {
             proxyHandlerLogger.warning("Breakpoint rule matched but no handler configured, forwarding")
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+            forwardRequest(
+                context: context,
+                head: head,
+                requestData: requestData,
+                graphQLInfo: graphQLInfo,
+                callback: callback
+            )
             return
         }
 
@@ -721,13 +729,31 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     context: context,
                     head: head,
                     requestData: requestData,
+                    graphQLInfo: graphQLInfo,
                     callback: callback
                 )
             case let .failure(error):
                 proxyHandlerLogger.error("Breakpoint handler failed: \(error.localizedDescription), forwarding")
-                self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+                self.forwardRequest(
+                    context: context,
+                    head: head,
+                    requestData: requestData,
+                    graphQLInfo: graphQLInfo,
+                    callback: callback
+                )
             }
         }
+    }
+
+    /// Tells the in-flight request's upstream handler that the client is gone.
+    ///
+    /// Driven from `channelInactive` rather than `handlerRemoved`: this handler is also removed
+    /// when the pipeline is reconfigured for a WebSocket upgrade, which is not a disconnect and
+    /// must not close the upgraded connection's origin channel.
+    nonisolated private func notifyClientDisconnected() {
+        let handler = currentUpstreamResponseHandler
+        currentUpstreamResponseHandler = nil
+        handler?.clientDisconnected()
     }
 
     nonisolated private func cancelPendingBreakpoint() {
@@ -741,6 +767,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         switch decision {
@@ -759,11 +786,24 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 originalHead: head,
                 originalRequestData: requestData
             )
-            self.forwardRequest(context: context, head: built.head, requestData: built.requestData, callback: callback)
+            self.forwardRequest(
+                context: context,
+                head: built.head,
+                requestData: built.requestData,
+                // The user may have edited the URL or the body, so it is detected again.
+                graphQLInfo: GraphQLDetector.detect(request: built.requestData),
+                callback: callback
+            )
         case .abort:
             self.sendErrorResponse(context: context, status: 503, requestData: requestData, callback: callback)
         case .cancel:
-            self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+            self.forwardRequest(
+                context: context,
+                head: head,
+                requestData: requestData,
+                graphQLInfo: graphQLInfo,
+                callback: callback
+            )
         }
     }
 }
@@ -792,7 +832,8 @@ extension HTTPProxyHandler {
                host: UpstreamConnectHost.resolve(for: host, clientHost: descriptor.clientHost),
                port: port,
                proxyPort: descriptor.proxyPort,
-               proxyHost: descriptor.proxyHost
+               proxyHost: descriptor.proxyHost,
+               localAddresses: localAddresses
            )
         {
             proxyHandlerLogger.warning("SECURITY: Refused CONNECT that targets the proxy listener itself")
@@ -861,7 +902,8 @@ extension HTTPProxyHandler {
                host: UpstreamConnectHost.resolve(for: host, clientHost: descriptor.clientHost),
                port: port,
                proxyPort: descriptor.proxyPort,
-               proxyHost: descriptor.proxyHost
+               proxyHost: descriptor.proxyHost,
+               localAddresses: localAddresses
            )
         {
             proxyHandlerLogger.warning("SECURITY: Refused SOCKS tunnel that targets the proxy listener itself")
@@ -878,7 +920,12 @@ extension HTTPProxyHandler {
         ))
         let ruleEngine = self.ruleEngine
         let identityHandle = self.clientIdentityHandle
-        return context.eventLoop.makeFutureWithTask {
+        // Retained but deliberately not liveness-gated: the SOCKS handler is blocked on this
+        // future for the reply byte it owes its client, so dropping the value would strand its
+        // handshake in `.admitting` rather than save work. This handler is still in the
+        // pipeline here (`SOCKS5ServerHandler` reaches it via `pipeline.handler(type:)`), so
+        // `channelInactive` can and does cancel it.
+        return hookTask.run(on: context.eventLoop) {
             await ProxyHandlerShared.evaluateRules(
                 ruleEngine,
                 request: requestData,
@@ -928,6 +975,14 @@ extension HTTPProxyHandler {
             // to interception, or an application-scoped rule needs to know the caller.
             // autoRead is already false so no client bytes are lost; an unresolved identity
             // fails closed for application-only SSL rules and never matches a rule.
+            //
+            // Left on `makeFutureWithTask` on purpose, unlike the other hooks in this file:
+            // `removeHandler(context:)` two steps up this chain has already taken this handler
+            // out of the pipeline, so its `channelInactive` can never fire again and a stored
+            // handle would have nothing to cancel it. The await is bounded by
+            // `awaitIdentity()` itself and retains no request body, so it is not part of the
+            // backlog `ProxyHookTaskSlot` exists for. Failing or dropping it instead would
+            // lose the CONNECT.
             return context.eventLoop.makeFutureWithTask {
                 guard sslIdentityCanAffectDecision else {
                     return await ruleEngine.hasApplicationScopedRules
@@ -990,6 +1045,7 @@ extension HTTPProxyHandler {
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         responseHeaderOperations: [HeaderOperation]? = nil,
         networkConditionProfile: NetworkConditionProfile? = nil
     ) {
@@ -997,6 +1053,7 @@ extension HTTPProxyHandler {
             context: context,
             head: head,
             requestData: requestData,
+            graphQLInfo: graphQLInfo,
             responseHeaderOperations: responseHeaderOperations,
             networkConditionProfile: networkConditionProfile,
             callback: onTransactionComplete
@@ -1007,6 +1064,7 @@ extension HTTPProxyHandler {
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         responseHeaderOperations: [HeaderOperation]? = nil,
         networkConditionProfile: NetworkConditionProfile? = nil,
         bypassUserModifications: Bool = false,
@@ -1023,7 +1081,6 @@ extension HTTPProxyHandler {
 
         let host = requestData.host
         let startTime = requestStartTime ?? .now()
-        let graphQLInfo = GraphQLDetector.detect(request: requestData)
         guard !host.isEmpty else {
             sendErrorResponse(context: context, status: 400, requestData: requestData, callback: callback)
             return
@@ -1037,7 +1094,8 @@ extension HTTPProxyHandler {
                host: connectHost,
                port: port,
                proxyPort: descriptor.proxyPort,
-               proxyHost: descriptor.proxyHost
+               proxyHost: descriptor.proxyHost,
+               localAddresses: localAddresses
            )
         {
             proxyHandlerLogger.warning("SECURITY: Refused request that targets the proxy listener itself")
@@ -1174,6 +1232,7 @@ extension HTTPProxyHandler {
         )
         pendingBreakpointPhase = nil
         pendingBreakpointRuleName = nil
+        currentUpstreamResponseHandler = responseHandler
 
         clientChannel.pipeline.addHandler(responseHandler).whenComplete { result in
             switch result {
@@ -1269,7 +1328,7 @@ extension HTTPProxyHandler {
         callback(transaction)
     }
 
-    nonisolated private func sendResponse(
+    nonisolated func sendResponse(
         context: ChannelHandlerContext,
         responseData: HTTPResponseData,
         requestData: HTTPRequestData,

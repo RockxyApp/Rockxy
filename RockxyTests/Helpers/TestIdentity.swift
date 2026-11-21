@@ -1,5 +1,6 @@
 import Foundation
 @testable import Rockxy
+import Security
 
 enum TestIdentity {
     static let familyNamespace = "com.amunx.rockxy"
@@ -20,6 +21,7 @@ enum TestIdentity {
         "proxyPort",
         "autoStart",
         "recordOnLaunch",
+        "automaticallySetSystemProxy",
         "onlyListenOnLocalhost",
         "listenIPv6",
         "autoSelectPort",
@@ -64,5 +66,39 @@ enum TestIdentity {
     static var isRunningUnderRawXCTestTool: Bool {
         RockxyIdentity.current.appBundleIdentifier == "com.apple.dt.xctest.tool"
             || RockxyIdentity.current.displayName == "xctest"
+    }
+
+    /// True when the running test host carries an ad-hoc signature. An ad-hoc
+    /// signature passes `SecCodeCheckValidity`, so a `validateAppSignature() == .valid`
+    /// check alone does not establish that a certificate chain exists — ad-hoc embeds
+    /// no certificates at all. Any test asserting a chain is extractable has no
+    /// precondition to stand on here, which is the case for a host built with
+    /// `CODE_SIGN_IDENTITY=-`.
+    static var isAdHocSigned: Bool {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else {
+            return false
+        }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess,
+              let staticCode
+        else {
+            return false
+        }
+        var information: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &information
+        ) == errSecSuccess,
+            let dictionary = information as? [String: Any],
+            let flags = dictionary[kSecCodeInfoFlags as String] as? UInt32
+        else {
+            return false
+        }
+        // `kSecCodeSignatureAdhoc` is an anonymous-enum value in CSCommon.h and Swift does
+        // not import it under that name. `SecCodeSignatureFlags.adhoc` is the Swift-visible
+        // spelling; its raw value is 2 on the installed SDK.
+        return flags & UInt32(SecCodeSignatureFlags.adhoc.rawValue) != 0
     }
 }

@@ -15,6 +15,18 @@ struct CustomCertificatesView: View {
         VStack(spacing: 0) {
             modePicker
             Divider()
+            if let reason = viewModel.customRootFallbackReason {
+                PersistenceFailureBanner(
+                    title: String(
+                        localized: "Your custom root certificate is not in use",
+                        bundle: RockxyLocalization.bundle
+                    ),
+                    detail: reason,
+                    actionTitle: String(localized: "Check Again", bundle: RockxyLocalization.bundle),
+                    retry: { Task { await viewModel.refreshCustomRootFallback() } }
+                )
+                Divider()
+            }
             content
             Divider()
             footer
@@ -26,6 +38,9 @@ struct CustomCertificatesView: View {
         )
         .task {
             await viewModel.refreshDefaultRoot()
+        }
+        .task {
+            await viewModel.refreshCustomRootFallback()
         }
         .onChange(of: viewModel.mode) { _, newMode in
             if newMode == .root {
@@ -335,8 +350,7 @@ struct CustomCertificatesView: View {
 
     /// One or two import actions are direct buttons rather than a pull-down: a menu holding a
     /// single item only adds a step, and the HIG reserves pull-downs for three or more commands.
-    @ViewBuilder
-    private var importButtons: some View {
+    @ViewBuilder private var importButtons: some View {
         if viewModel.mode != .root {
             Button(String(localized: "Import PEM / DER…", bundle: RockxyLocalization.bundle)) {
                 importPEMOrDER(kind: viewModel.mode.kind)

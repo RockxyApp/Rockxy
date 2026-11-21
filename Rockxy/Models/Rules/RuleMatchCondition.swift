@@ -133,12 +133,18 @@ struct RuleMatchCondition: Codable, Equatable {
             }
         }
         if let requiredMethod = method {
-            guard requestMethod.uppercased() == requiredMethod.uppercased() else {
+            guard requestMethod.caseInsensitiveCompare(requiredMethod) == .orderedSame else {
                 return false
             }
         }
         if let name = headerName, let value = headerValue {
-            guard headers.contains(where: { $0.name.lowercased() == name.lowercased() && $0.value == value }) else {
+            // `caseInsensitiveCompare` folds both sides without allocating a case-converted
+            // copy. The previous `$0.name.lowercased() == name.lowercased()` ICU-lowercased
+            // the RULE's header name inside the loop, so it was recomputed once per request
+            // header, and this condition is evaluated per rule carrying it, per request,
+            // across every pass in `ProxyHandlerShared.evaluateRules`.
+            guard headers.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame && $0.value == value })
+            else {
                 return false
             }
         }

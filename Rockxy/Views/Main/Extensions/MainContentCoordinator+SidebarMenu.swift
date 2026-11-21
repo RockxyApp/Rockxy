@@ -638,16 +638,21 @@ extension MainContentCoordinator {
 
     func rebuildObservedDomainsByApp() {
         var countsByApp: [String: [String: Int]] = [:]
-
+        var contributions: [ObjectIdentifier: (app: String, host: String, count: Int)] = [:]
+        let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         for transaction in transactions {
-            let appName = normalizedObservedAppName(transaction.clientApp)
+            let appName = normalizedObservedAppName(transaction.clientApp, unknownName: unknown)
             let host = normalizedObservedHost(transaction.request.host)
             guard !appName.isEmpty, !host.isEmpty else {
                 continue
             }
             countsByApp[appName, default: [:]][host, default: 0] += 1
+            let id = ObjectIdentifier(transaction)
+            let count = contributions[id]?.count ?? 0
+            contributions[id] = (appName, host, count + 1)
         }
 
+        observedDomainContributions = contributions
         observedDomainCountsByApp = countsByApp
         observedDomainsByApp = countsByApp.mapValues { Set($0.keys) }
     }
@@ -657,12 +662,19 @@ extension MainContentCoordinator {
             return
         }
         var changedApps: Set<String> = []
+        let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         for transaction in batch {
-            let appName = normalizedObservedAppName(transaction.clientApp)
+            let appName = normalizedObservedAppName(transaction.clientApp, unknownName: unknown)
             let host = normalizedObservedHost(transaction.request.host)
             guard !host.isEmpty else {
                 continue
             }
+            let id = ObjectIdentifier(transaction)
+            if let old = observedDomainContributions[id], old.app != appName || old.host != host {
+                moveObservedDomainsFromUnknown(for: [transaction])
+            }
+            let count = observedDomainContributions[id]?.count ?? 0
+            observedDomainContributions[id] = (appName, host, count + 1)
             observedDomainCountsByApp[appName, default: [:]][host, default: 0] += 1
             changedApps.insert(appName)
         }
@@ -670,30 +682,38 @@ extension MainContentCoordinator {
     }
 
     func moveObservedDomainsFromUnknown(for transactions: [HTTPTransaction]) {
-        let unknown = normalizedObservedAppName(nil)
+        let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         var changedApps: Set<String> = []
         for transaction in transactions {
-            let destination = normalizedObservedAppName(transaction.clientApp)
-            let host = normalizedObservedHost(transaction.request.host)
-            guard destination != unknown, !host.isEmpty else {
+            let id = ObjectIdentifier(transaction)
+            // An evicted row has no contribution. A repeated/late callback must not
+            // create a new count, including after a full rebuild already saw its app.
+            guard let old = observedDomainContributions[id] else {
                 continue
             }
-
-            if let count = observedDomainCountsByApp[unknown]?[host] {
-                if count <= 1 {
-                    observedDomainCountsByApp[unknown]?.removeValue(forKey: host)
-                } else {
-                    observedDomainCountsByApp[unknown]?[host] = count - 1
-                }
-                if observedDomainCountsByApp[unknown]?.isEmpty == true {
-                    observedDomainCountsByApp.removeValue(forKey: unknown)
-                }
+            let destination = normalizedObservedAppName(transaction.clientApp, unknownName: unknown)
+            let host = normalizedObservedHost(transaction.request.host)
+            guard old.app != destination || old.host != host else {
+                continue
             }
-            observedDomainCountsByApp[destination, default: [:]][host, default: 0] += 1
-            changedApps.insert(destination)
+            let remaining = (observedDomainCountsByApp[old.app]?[old.host] ?? 0) - old.count
+            if remaining <= 0 {
+                observedDomainCountsByApp[old.app]?.removeValue(forKey: old.host)
+            } else {
+                observedDomainCountsByApp[old.app]?[old.host] = remaining
+            }
+            if observedDomainCountsByApp[old.app]?.isEmpty == true {
+                observedDomainCountsByApp.removeValue(forKey: old.app)
+            }
+            if !host.isEmpty {
+                observedDomainCountsByApp[destination, default: [:]][host, default: 0] += old.count
+                observedDomainContributions[id] = (destination, host, old.count)
+            } else {
+                observedDomainContributions.removeValue(forKey: id)
+            }
+            changedApps.formUnion([old.app, destination])
         }
         if !changedApps.isEmpty {
-            changedApps.insert(unknown)
             publishObservedDomains(for: changedApps)
         }
     }
@@ -722,7 +742,9 @@ extension MainContentCoordinator {
         }
     }
 
-    private func publishObservedDomains(for appNames: Set<String>) {
+    /// Not private: `retainObservedDomainsByApp(removing:appending:)` publishes through
+    /// this too, so the ledger has one publication point rather than two that can drift.
+    func publishObservedDomains(for appNames: Set<String>) {
         var snapshot = observedDomainsByApp
         for appName in appNames {
             if let counts = observedDomainCountsByApp[appName], !counts.isEmpty {
@@ -734,9 +756,9 @@ extension MainContentCoordinator {
         observedDomainsByApp = snapshot
     }
 
-    private func normalizedObservedAppName(_ value: String?) -> String {
+    private func normalizedObservedAppName(_ value: String?, unknownName: String) -> String {
         let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return normalized.isEmpty ? String(localized: "Unknown", bundle: RockxyLocalization.bundle) : normalized
+        return normalized.isEmpty ? unknownName : normalized
     }
 
     private func normalizedObservedHost(_ value: String) -> String {
@@ -861,11 +883,21 @@ extension MainContentCoordinator {
     }
 
     func removeDomainFromSidebar(_ domain: String, pathPrefix: String?) {
-        transactions.removeAll {
-            DomainGrouping.host($0.request.host, matchesDomain: domain)
-                && DomainGrouping.path($0.request.path, matchesPrefix: pathPrefix)
-        }
+        let removedIDs = Set(
+            transactions.lazy.filter {
+                DomainGrouping.host($0.request.host, matchesDomain: domain)
+                    && DomainGrouping.path($0.request.path, matchesPrefix: pathPrefix)
+            }.map(\.id)
+        )
+        transactions.removeAll { removedIDs.contains($0.id) }
+        // The user asked for these rows to go for good; their cached AI evidence can never hit
+        // again. Hygiene only -- the cache holds no header, cookie or body material.
+        AITrafficDetector.discardCachedEvidence(for: removedIDs)
         syncActiveProjectHistory()
+        // Rows left the history, which is the one change the count cannot be folded
+        // forward from -- the deleted rows are already gone by the time we look.
+        recomputeErrorCount()
+        rebuildTrafficTotals(from: transactions)
         rebuildObservedDomainsByApp()
 
         // Clear selection if it was removed by this action.
@@ -885,14 +917,27 @@ extension MainContentCoordinator {
             break
         }
 
-        rebuildSidebarIndexes()
+        // Every Traffic Tab keeps its own filtered rows and sidebar indexes, so repairing
+        // only the active one left the other tabs listing traffic the user had just
+        // deleted -- and holding the last strong reference to it. The recompute after is
+        // for the active tab alone, whose filter criteria the selection reset above may
+        // have widened.
+        evictFromAllWorkspaces(removedIDs: removedIDs)
         recomputeFilteredTransactions()
         Self.logger.info("Removed domain from sidebar: \(domain)")
     }
 
     func removeAppFromSidebar(_ appName: String) {
-        transactions.removeAll { $0.clientApp == appName }
+        let removedIDs = Set(transactions.lazy.filter { $0.clientApp == appName }.map(\.id))
+        transactions.removeAll { removedIDs.contains($0.id) }
+        // The user asked for these rows to go for good; their cached AI evidence can never hit
+        // again. Hygiene only -- the cache holds no header, cookie or body material.
+        AITrafficDetector.discardCachedEvidence(for: removedIDs)
         syncActiveProjectHistory()
+        // Rows left the history, which is the one change the count cannot be folded
+        // forward from -- the deleted rows are already gone by the time we look.
+        recomputeErrorCount()
+        rebuildTrafficTotals(from: transactions)
         rebuildObservedDomainsByApp()
 
         // Clear selection if it was this app
@@ -902,7 +947,7 @@ extension MainContentCoordinator {
             filterCriteria.sidebarScope = .allTraffic
         }
 
-        rebuildSidebarIndexes()
+        evictFromAllWorkspaces(removedIDs: removedIDs)
         recomputeFilteredTransactions()
         Self.logger.info("Removed app from sidebar: \(appName)")
     }

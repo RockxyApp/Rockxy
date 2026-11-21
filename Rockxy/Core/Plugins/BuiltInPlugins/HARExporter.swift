@@ -81,7 +81,7 @@ private struct HAREntry {
         )
         let timeMs = (transaction.timingInfo?.totalDuration ?? transaction.measuredDuration ?? 0) * 1_000.0
 
-        let dict: [String: Any] = [
+        var entry: [String: Any] = [
             "startedDateTime": startedDateTime,
             "time": timeMs,
             "request": requestDictionary(),
@@ -89,13 +89,46 @@ private struct HAREntry {
             "cache": [String: Any](),
             "timings": timingsDictionary()
         ]
+        if let metadata = transaction.babylonCaptureMetadata,
+           let encoded = try? JSONEncoder().encode(metadata),
+           let extensionValue = try? JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        {
+            entry["_rockxyBabylonCapture"] = extensionValue
+        }
+        if let callType = transaction.babylonGRPCCallType {
+            entry["_rockxyBabylonGRPCCallType"] = callType
+        }
+        return entry
 
         // No `pageref`: the log declares no `pages`, and a reference to a missing page is
         // invalid for strict HAR consumers.
-        return dict
     }
 
     // MARK: Private
+
+    private static func isTextual(mimeType: String, contentType: ContentType?) -> Bool {
+        if let contentType, [.json, .xml, .html, .text, .form].contains(contentType) {
+            return true
+        }
+        let mediaType = mimeType.split(separator: ";", maxSplits: 1).first
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() } ?? ""
+        if mediaType.hasPrefix("text/") {
+            return true
+        }
+        let textualApplicationTypes: Set = [
+            "application/json",
+            "application/x-ndjson",
+            "application/jsonlines",
+            "application/javascript",
+            "application/x-javascript",
+            "application/xml",
+            "application/x-www-form-urlencoded",
+            "application/graphql",
+        ]
+        return textualApplicationTypes.contains(mediaType)
+            || mediaType.hasSuffix("+json")
+            || mediaType.hasSuffix("+xml")
+    }
 
     private func requestDictionary() -> [String: Any] {
         let req = transaction.request
@@ -104,7 +137,7 @@ private struct HAREntry {
         // +4 accounts for ": " separator and "\r\n" line ending per header
         let headersSize = req.headers.reduce(0) { $0 + $1.name.count + $1.value.count + 4 }
 
-        return [
+        var result: [String: Any] = [
             "method": req.method,
             "url": req.url.absoluteString,
             "httpVersion": req.httpVersion,
@@ -115,6 +148,8 @@ private struct HAREntry {
             "bodySize": req.body?.count ?? 0,
             "postData": postDataDictionary(body: req.body, headers: req.headers, contentType: req.contentType)
         ]
+        result.merge(bodyOmissionExtension(truncated: req.bodyTruncated, metadata: req.bodyOmission)) { _, new in new }
+        return result
     }
 
     /// The protocol the response actually used: Rockxy records how it reached the server, and
@@ -149,7 +184,7 @@ private struct HAREntry {
         let contentEncoding = resp.headers.first { $0.name.lowercased() == "content-encoding" }?.value
         let decodedBody = resp.body.map { BodyDecoder.decode($0, encoding: contentEncoding) }
 
-        return [
+        var result: [String: Any] = [
             "status": resp.statusCode,
             "statusText": resp.statusMessage,
             "httpVersion": responseHTTPVersion(),
@@ -160,6 +195,22 @@ private struct HAREntry {
             "headersSize": headersSize,
             "bodySize": resp.body?.count ?? -1
         ]
+        result
+            .merge(bodyOmissionExtension(truncated: resp.bodyTruncated, metadata: resp.bodyOmission)) { _, new in new }
+        return result
+    }
+
+    private func bodyOmissionExtension(truncated: Bool, metadata: BodyOmissionMetadata?) -> [String: Any] {
+        guard truncated || metadata != nil else {
+            return [:]
+        }
+        var value: [String: Any] = ["truncated": truncated || metadata != nil]
+        if let metadata {
+            value["reason"] = metadata.reason
+            value["observedBytes"] = metadata.observedBytes
+            value["originalBytes"] = metadata.originalBytes
+        }
+        return ["_rockxyBodyOmission": value]
     }
 
     private func timingsDictionary() -> [String: Any] {
@@ -204,7 +255,10 @@ private struct HAREntry {
         case .multipartForm: return "multipart/form-data"
         case .protobuf: return "application/protobuf"
         case .text: return "text/plain"
-        case .image, .binary, .unknown, .none: return fallback
+        case .image,
+             .binary,
+             .unknown,
+             .none: return fallback
         }
     }
 
@@ -243,30 +297,6 @@ private struct HAREntry {
         }
         let text = String(data: body, encoding: .utf8) ?? body.base64EncodedString()
         return ["mimeType": mimeType, "text": text]
-    }
-
-    private static func isTextual(mimeType: String, contentType: ContentType?) -> Bool {
-        if let contentType, [.json, .xml, .html, .text, .form].contains(contentType) {
-            return true
-        }
-        let mediaType = mimeType.split(separator: ";", maxSplits: 1).first
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() } ?? ""
-        if mediaType.hasPrefix("text/") {
-            return true
-        }
-        let textualApplicationTypes: Set<String> = [
-            "application/json",
-            "application/x-ndjson",
-            "application/jsonlines",
-            "application/javascript",
-            "application/x-javascript",
-            "application/xml",
-            "application/x-www-form-urlencoded",
-            "application/graphql",
-        ]
-        return textualApplicationTypes.contains(mediaType)
-            || mediaType.hasSuffix("+json")
-            || mediaType.hasSuffix("+xml")
     }
 
     private func headerToDict(_ header: HTTPHeader) -> [String: String] {

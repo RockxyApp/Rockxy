@@ -111,6 +111,12 @@ struct DecimalFormatterTests {
         pattern: #"\\\([^)]*\)%(?!%)"#
     )
 
+    /// The app plus the three targets that ship beside it. `Shared/`, `RockxyHelperTool/` and
+    /// `RockxyMCP/` cannot see `DecimalFormatter`, but scanning only `Rockxy/` let a hand-built
+    /// fraction or percentage there pass while the identical one in the app was caught. They hold
+    /// no offender today; a new one is reworded or justified in the owner sets above.
+    private static let sourceDirectories = ["Rockxy", "Shared", "RockxyHelperTool", "RockxyMCP"]
+
     private static func formatsAFractionByHand(_ line: String) -> Bool {
         guard let fractionFormatPattern, !isAComment(line) else {
             return false
@@ -133,17 +139,24 @@ struct DecimalFormatterTests {
     }
 
     private static func projectSources() throws -> [(path: String, source: String)] {
-        let root = try resolveProjectRoot().appendingPathComponent("Rockxy")
-        let prefix = root.deletingLastPathComponent().path + "/"
-        let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        let projectRoot = try resolveProjectRoot()
+        let prefix = projectRoot.path + "/"
         var sources: [(path: String, source: String)] = []
-        while let url = enumerator?.nextObject() as? URL {
-            guard url.pathExtension == "swift" else {
-                continue
+        for directory in sourceDirectories {
+            let root = projectRoot.appendingPathComponent(directory)
+            var contributed = 0
+            let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+            while let url = enumerator?.nextObject() as? URL {
+                guard url.pathExtension == "swift" else {
+                    continue
+                }
+                let resolved = url.resolvingSymlinksInPath().path
+                let path = resolved.hasPrefix(prefix) ? String(resolved.dropFirst(prefix.count)) : resolved
+                try sources.append((path, String(contentsOf: url, encoding: .utf8)))
+                contributed += 1
             }
-            let resolved = url.resolvingSymlinksInPath().path
-            let path = resolved.hasPrefix(prefix) ? String(resolved.dropFirst(prefix.count)) : resolved
-            try sources.append((path, String(contentsOf: url, encoding: .utf8)))
+            // A directory that is renamed or removed would silently shrink the scan.
+            #expect(contributed > 0, "Scanned directory contributes no Swift sources: \(directory)")
         }
         return sources
     }

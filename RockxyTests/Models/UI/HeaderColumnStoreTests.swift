@@ -2,6 +2,8 @@ import Foundation
 @testable import Rockxy
 import Testing
 
+// MARK: - HeaderColumnStoreTests
+
 // Regression tests for `HeaderColumnStore` in the models ui layer.
 
 @Suite(.serialized)
@@ -48,6 +50,32 @@ struct HeaderColumnStoreTests {
         #expect(first.id == second.id)
         #expect(store.columns.count == 1)
         #expect(store.isColumnDefined(headerName: "X-REQUEST-ID", source: .request))
+    }
+
+    /// Query parameter names, unlike HTTP field names, are case-sensitive: `?Token=`
+    /// and `?token=` are two parameters, and the resolver reads one by exact name. When
+    /// the duplicate check folded case, the second column could not be created at all
+    /// and the first one's value was shown under the name the user had asked for.
+    @Test("Query parameter names differing only in case are separate columns")
+    func queryNamesAreCaseSensitive() {
+        let store = makeCleanStore()
+        let lower = store.addColumn(headerName: "token", source: .query)
+        let upper = store.addColumn(headerName: "Token", source: .query)
+
+        #expect(lower.id != upper.id)
+        #expect(store.columns.count == 2)
+        #expect(store.isColumnDefined(headerName: "Token", source: .query))
+        #expect(!store.isColumnDefined(headerName: "TOKEN", source: .query))
+
+        let transaction = TestFixtures.makeTransaction(
+            url: "https://api.example.com/items?token=lower&Token=upper"
+        )
+        #expect(
+            HeaderColumnStore.resolveValue(for: "reqQuery.token", transaction: transaction) == "lower"
+        )
+        #expect(
+            HeaderColumnStore.resolveValue(for: "reqQuery.Token", transaction: transaction) == "upper"
+        )
     }
 
     @Test("Same header name different source are separate")
@@ -375,9 +403,13 @@ struct HeaderColumnStoreTests {
     }
 }
 
+// MARK: - CustomHeaderColumnsViewModelTests
+
 @Suite(.serialized)
 @MainActor
 struct CustomHeaderColumnsViewModelTests {
+    // MARK: Internal
+
     @Test("Saved spelling wins when captured casing differs")
     func savedSpellingWins() {
         let environment = makeEnvironment()
@@ -449,7 +481,7 @@ struct CustomHeaderColumnsViewModelTests {
         store.addColumn(headerName: "Authorization", source: .request)
         store.addColumn(headerName: "X-Request-ID", source: .request)
         let model = CustomHeaderColumnsViewModel(store: store)
-        model.selection = [try #require(model.visibleRows.first?.id)]
+        model.selection = try [#require(model.visibleRows.first?.id)]
 
         model.searchText = "request"
         model.reconcileSelection()
@@ -489,6 +521,8 @@ struct CustomHeaderColumnsViewModelTests {
         #expect(model.visibleRows.first?.state == .discovered)
         #expect(model.selection == [rowID])
     }
+
+    // MARK: Private
 
     private func makeEnvironment() -> (
         store: HeaderColumnStore,

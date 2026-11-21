@@ -20,7 +20,7 @@ struct TLSKeyLogSettingsTests {
     }
 
     @Test("Turning logging on opens the chosen file and survives a relaunch")
-    func enableAndRelaunch() throws {
+    func enableAndRelaunch() {
         let defaults = IsolatedDefaultsSuite.make(prefix: "Rockxy.TLSKeyLogSettingsTests")
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("keys-\(UUID().uuidString).log")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -65,5 +65,7 @@ struct TLSKeyLogSettingsTests {
         settings.setEnabled(true)
         #expect(writer.destination == nil)
         #expect(settings.errorMessage != nil)
+        #expect(settings.errorMessage?.contains("keys.log") == true)
+        #expect(settings.errorMessage?.contains(settings.fileURL.path) == false)
     }
 }

@@ -207,7 +207,10 @@ struct FocusSidebarList: View {
     /// Mirrors `FocusSetSidebarRow`: the muted source, how many captured requests it is
     /// currently hiding, and a context menu that can undo the mute without opening the sheet.
     private func mutedSourceRow(_ source: MutedTrafficSource) -> some View {
-        HStack(spacing: 7) {
+        // Counted once. Both the badge and the accessibility value need it, and each
+        // call scans the whole retained capture.
+        let hidden = coordinator.mutedTransactionCount(for: source)
+        return HStack(spacing: 7) {
             Image(systemName: source.systemImage)
                 .foregroundStyle(.secondary)
                 .frame(width: 20, height: 20)
@@ -219,7 +222,6 @@ struct FocusSidebarList: View {
 
             Spacer(minLength: 6)
 
-            let hidden = coordinator.mutedTransactionCount(for: source)
             if hidden > 0 {
                 Text(CountFormatter.format(hidden))
                     .font(.system(size: metrics.sidebarSecondaryFontSize))
@@ -235,7 +237,7 @@ struct FocusSidebarList: View {
         .accessibilityElement(children: .combine)
         .accessibilityValue(
             String(AttributedString(
-                localized: "^[\(coordinator.mutedTransactionCount(for: source)) hidden request](inflect: true)",
+                localized: "^[\(hidden) hidden request](inflect: true)",
                 bundle: RockxyLocalization.bundle,
                 locale: RockxyLocalization.locale
             ).characters)

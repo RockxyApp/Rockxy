@@ -160,7 +160,8 @@ final class MainContentCoordinator {
             AppSettingsManager.shared.settings
         },
         projectCatalogRepository: ProjectCatalogPersisting? = nil,
-        projectTabAutosaveDebounce: Duration = .milliseconds(500)
+        projectTabAutosaveDebounce: Duration = .milliseconds(500),
+        searchRecomputeDebounce: Duration = .milliseconds(150)
     ) {
         self.policy = policy
         self.assistantRuntime = assistantRuntime
@@ -174,6 +175,7 @@ final class MainContentCoordinator {
         // the concrete repository later. The store shares this coordinator's policy.
         self.projectStore = ProjectStore(policy: policy, repository: projectCatalogRepository)
         self.projectTabAutosaveDebounce = projectTabAutosaveDebounce
+        self.searchRecomputeDebounce = searchRecomputeDebounce
         self.liveHistoryLimit = policy.maxLiveHistoryEntries
         refreshCaptureContextSnapshot()
     }
@@ -185,6 +187,7 @@ final class MainContentCoordinator {
         projectTabAutosaveTask?.cancel()
         projectHydrationTask?.cancel()
         captureHealthTask?.cancel()
+        liveRowRefreshTask?.cancel()
         proxyStartTask?.cancel()
         proxyConfigurationRefreshTask?.cancel()
         httpsInterceptionRetryTask?.cancel()
@@ -212,6 +215,7 @@ final class MainContentCoordinator {
         if let socksListenerObserver {
             NotificationCenter.default.removeObserver(socksListenerObserver)
         }
+        memoryPressureSource?.cancel()
     }
 
     // MARK: Internal
@@ -222,7 +226,11 @@ final class MainContentCoordinator {
     }
 
     struct SidebarFavoritesCacheKey: Equatable {
-        let transactionCount: Int
+        /// Bumped by `invalidateSidebarFavoriteCache()`, which every pin, save, note, and
+        /// removal path already calls. The key used to carry `transactions.count`, which
+        /// made the cache miss on every captured request -- so the six scans below ran
+        /// again for an append that cannot change which rows are pinned, saved, or noted.
+        let favoritesRevision: UInt
         let persistedFavoriteCount: Int
         let sessionGeneration: UInt
     }
@@ -276,7 +284,6 @@ final class MainContentCoordinator {
     // MARK: - UI State — Traffic
 
     var transactions: [HTTPTransaction] = []
-    var persistedFavorites: [HTTPTransaction] = []
     var isProxyRunning = false
     var isProxyStarting = false
     var isProxyStopping = false
@@ -293,6 +300,9 @@ final class MainContentCoordinator {
     var proxyError: String?
     var isSystemProxyConfigured = false
     @ObservationIgnored var captureHealthTask: Task<Void, Never>?
+    /// Merge adjacent session-actor completion batches before refreshing derived UI state.
+    @ObservationIgnored var pendingLiveRowUpdates: [UUID: HTTPTransaction] = [:]
+    @ObservationIgnored var liveRowRefreshTask: Task<Void, Never>?
     @ObservationIgnored var proxyStartTask: Task<Void, Never>?
     @ObservationIgnored var proxyConfigurationRefreshTask: Task<Void, Never>?
     @ObservationIgnored var httpsInterceptionRetryTask: Task<Void, Never>?
@@ -308,6 +318,15 @@ final class MainContentCoordinator {
     @ObservationIgnored var debugAssistantTasks: [UUID: DebugAssistantTaskHandle] = [:]
     @ObservationIgnored var debugAssistantTransactionsByHost: [String: [HTTPTransaction]] = [:]
     @ObservationIgnored var debugAssistantIndexedTransactionIDs: Set<UUID> = []
+    /// The host bucket each indexed row was filed under. Maintenance state, so
+    /// `@ObservationIgnored`. It records where the row actually went rather than what its
+    /// request names now, which is what lets a retention step remove it: a rule rewrite or
+    /// a replay can change `request` after indexing, and a removal that looked up the
+    /// current host would leave the evicted row in the index holding the last strong
+    /// reference to it.
+    @ObservationIgnored var debugAssistantIndexedHostByID: [UUID: String] = [:]
+    /// Rows examined while evicting from the Assistant host index. Counted work for tests.
+    @ObservationIgnored var debugAssistantIndexRemovalScans = 0
     @ObservationIgnored var debugAssistantIndexedLiveCount = 0
     @ObservationIgnored var debugAssistantIndexedFavoriteCount = 0
     @ObservationIgnored var debugAssistantTrafficIndexGeneration: UInt = 0
@@ -325,10 +344,35 @@ final class MainContentCoordinator {
     var downloadSpeed: Int64 = 0
     var totalUploadBytes: Int64 = 0
     var totalDownloadBytes: Int64 = 0
-    var trafficSamples: [(timestamp: Date, upload: Int64, download: Int64)] = []
+    /// The 1-second sliding window behind `uploadSpeed`/`downloadSpeed`. Pure maintenance
+    /// state, like `erroredTransactionIDs`: the bandwidth timer rewrites it four times a
+    /// second, and observing it would invalidate every reader of the coordinator at that
+    /// cadence even though nothing reads the samples themselves.
+    @ObservationIgnored var trafficSamples: [(timestamp: Date, upload: Int64, download: Int64)] = []
     var bandwidthTimer: Timer?
     var isProxyOverridden = false
+    /// Mirrors `SystemProxyManager.directWatchdogRefusedItsRecord`, which is lock-guarded and not
+    /// observable. Refreshed through `syncDirectWatchdogRefusal()` wherever the manager can change
+    /// the answer: ownership reconciliation, enabling, and every restore.
+    var isDirectProxyRecordUnverified = false
+    /// Reads the manager's refusal flag. Injectable so state-level tests never touch live proxy state.
+    @ObservationIgnored var directWatchdogRefusalProbe: () -> Bool = {
+        SystemProxyManager.shared.directWatchdogRefusedItsRecord
+    }
+
+    /// Mirrors `SystemProxyManager.directWatchdogNeverRan`: the watchdog job never started, so no
+    /// automatic restore exists. Separate from `isDirectProxyRecordUnverified`, which means the
+    /// watchdog ran and rejected its record. Both lead to the same manual restore.
+    var isDirectWatchdogNotRunning = false
+    /// Reads the manager's never-ran flag. Injectable so state-level tests never touch live proxy state.
+    @ObservationIgnored var directWatchdogNeverRanProbe: () -> Bool = {
+        SystemProxyManager.shared.directWatchdogNeverRan
+    }
+
     nonisolated(unsafe) var evictionObserver: NSObjectProtocol?
+    nonisolated(unsafe) var memoryPressureSource: DispatchSourceMemoryPressure?
+    /// Throttles pressure-driven eviction; see `evictForMemoryPressure(isCritical:now:)`.
+    var lastMemoryPressureEvictionAt: Date?
     nonisolated(unsafe) var composeExchangeObserver: NSObjectProtocol?
     nonisolated(unsafe) var reverseProxyObserver: NSObjectProtocol?
     nonisolated(unsafe) var socksListenerObserver: NSObjectProtocol?
@@ -337,6 +381,51 @@ final class MainContentCoordinator {
 
     var proxyStartedAt: Date?
     var errorCount: Int = 0
+
+    /// Which retained rows are currently counted in `errorCount`.
+    ///
+    /// Remembering the classification is what lets a live refresh adjust the count from
+    /// just the rows that changed. The producer hands back transactions that carry a
+    /// response the row did not have when it was first counted, so without this there is
+    /// nothing to compare against and the only correct answer is to rescan the whole
+    /// retained capture -- which `handleLiveTransactionUpdate` did on every display
+    /// interval, so the cost grew with how long capture had been running.
+    ///
+    /// Maintained only by `recomputeErrorCount()`, `updateErrorCount(for:)`, and
+    /// `retainErrorAndSignalCounts(removing:appending:)`, which are also the only writers
+    /// of `errorCount`. It cannot be `private(set)`: those live in extensions in other
+    /// files, and a private setter does not reach across files.
+    @ObservationIgnored var erroredTransactionIDs: Set<UUID> = []
+
+    /// Which retained rows are TLS-failure rows, which the request list never shows.
+    ///
+    /// Same role as `erroredTransactionIDs`, for the status bar's "available" count:
+    /// `availableTransactionCountForCurrentScope` answered `.allTraffic` by counting
+    /// `!isTLSFailure` across the whole retained capture inside the centre pane's `body`,
+    /// which both cost a pass per render and registered an observation dependency on
+    /// every retained row -- so the next arriving response invalidated the pane and the
+    /// pass ran again. Subtracting a maintained count touches no row at all.
+    ///
+    /// Maintained at the same three points as the error count, deliberately so the two
+    /// cannot drift apart.
+    @ObservationIgnored var tlsFailureTransactionIDs: Set<UUID> = []
+
+    /// Monotonic stamp for `SidebarFavoritesCacheKey`, bumped by
+    /// `invalidateSidebarFavoriteCache()`. Not observed: it is cache bookkeeping, and the
+    /// favourites themselves are read through `allPinnedTransactions` and its siblings.
+    @ObservationIgnored var sidebarFavoritesRevision: UInt = 0
+
+    /// Badge counts for the sidebar's Traffic Signals, read by the sidebar instead of
+    /// being counted in its `body`.
+    var trafficSignalCounts: [TrafficSignal: Int] = [:]
+
+    /// Which signals each retained row is currently counted in, one bit per
+    /// `TrafficSignal.allCases` position. Same role as `erroredTransactionIDs`: it is
+    /// what lets a live refresh adjust the counts from just the rows that changed.
+    ///
+    /// Maintained only by `recomputeTrafficSignalCounts()`,
+    /// `updateTrafficSignalCounts(for:)`, and `retainErrorAndSignalCounts(removing:appending:)`.
+    @ObservationIgnored var signalMaskByTransactionID: [UUID: UInt8] = [:]
 
     // MARK: - Breakpoint
 
@@ -387,6 +476,12 @@ final class MainContentCoordinator {
     /// The single in-flight debounced autosave, replaced/cancelled on each change so
     /// the coordinator never accumulates unbounded persistence tasks.
     @ObservationIgnored var projectTabAutosaveTask: Task<Void, Never>?
+    /// Debounce window that coalesces a burst of typing in the search field into one
+    /// filter pass. Injectable so tests can shorten it.
+    @ObservationIgnored let searchRecomputeDebounce: Duration
+    /// The single in-flight debounced search recompute, replaced/cancelled on each
+    /// keystroke so typing never queues one filter pass per character.
+    @ObservationIgnored var searchRecomputeTask: Task<Void, Never>?
     /// Coalesces concurrent startup hydration attempts so the catalog loads once.
     @ObservationIgnored var projectHydrationTask: Task<Void, Never>?
     /// True once the active Project's tabs have been applied to the workspace store.
@@ -412,6 +507,9 @@ final class MainContentCoordinator {
     var ruleMutationTask: Task<Void, Never>?
 
     @ObservationIgnored var observedDomainCountsByApp: [String: [String: Int]] = [:]
+    /// Recorded attribution, independent of the mutable transaction's current client.
+    @ObservationIgnored var observedDomainContributions: [ObjectIdentifier: (app: String, host: String, count: Int)] =
+        [:]
 
     nonisolated(unsafe) var sslProxyingObserver: NSObjectProtocol?
 
@@ -420,6 +518,14 @@ final class MainContentCoordinator {
     /// large transaction row is not rewritten on every keystroke. See `+Notes`.
     @ObservationIgnored var noteFlushTasks: [UUID: Task<Void, Never>] = [:]
 
+    var persistedFavorites: [HTTPTransaction] = [] {
+        didSet {
+            // A reload can replace membership or object instances without changing count.
+            debugAssistantIndexedFavoriteCount = -1
+            debugAssistantRelatedCache = nil
+        }
+    }
+
     var isRecording = true {
         didSet {
             captureRecordingGate.update(isRecording: isRecording)
@@ -427,6 +533,26 @@ final class MainContentCoordinator {
     }
 
     var systemProxyWarning: SystemProxyWarning? {
+        // A restore that already failed carries its own retry; otherwise an unverifiable backup
+        // record outranks every other warning because nothing else will put the settings back.
+        let restoreAlreadyFailed = readiness.activeWarning?.action == .retryStop
+            || readiness.activeWarning?.action == .retryDisableSystemRouting
+        if isDirectProxyRecordUnverified, !restoreAlreadyFailed {
+            return SystemProxyWarning(
+                message: SystemProxyWarning.directRecordUnverifiedMessage,
+                action: .restoreProxySettings,
+                isDismissible: false,
+                isActionInProgress: false
+            )
+        }
+        if isDirectWatchdogNotRunning, !restoreAlreadyFailed {
+            return SystemProxyWarning(
+                message: SystemProxyWarning.directWatchdogNotRunningMessage,
+                action: .restoreProxySettings,
+                isDismissible: false,
+                isActionInProgress: false
+            )
+        }
         guard let warning = readiness.activeWarning else {
             return nil
         }
@@ -614,7 +740,12 @@ final class MainContentCoordinator {
         activeWorkspace.totalDomainCount
     }
 
+    /// Called by every mutator that can change which rows are pinned, saved, or noted,
+    /// and by `recomputeErrorCount()` -- which is exactly where rows have left the
+    /// retained history. Bumping the revision there is what keeps the cached lists from
+    /// outliving the rows they name now that an append no longer invalidates them.
     func invalidateSidebarFavoriteCache() {
+        sidebarFavoritesRevision &+= 1
         sidebarFavoritesCache = nil
     }
 
@@ -641,6 +772,31 @@ final class MainContentCoordinator {
             return live
         }
         return persistedFavorites.first(where: { $0.id == id })
+    }
+
+    /// Resolves a set of ids in one pass, live rows first, in the same order
+    /// `resolveSelectedTransactions()` produces for the focused pane's selection.
+    ///
+    /// Calling `transaction(for:)` per id walks the capture once per id, so a shift-click
+    /// range over a long capture was quadratic -- and the inspector's summary resolved
+    /// its selection four times per render.
+    func resolveTransactions(for ids: Set<UUID>) -> [HTTPTransaction] {
+        guard !ids.isEmpty else {
+            return []
+        }
+        var result: [HTTPTransaction] = []
+        var resolved: Set<UUID> = []
+        for transaction in transactions where ids.contains(transaction.id) {
+            result.append(transaction)
+            resolved.insert(transaction.id)
+        }
+        let remaining = ids.subtracting(resolved)
+        if !remaining.isEmpty {
+            for transaction in persistedFavorites where remaining.contains(transaction.id) {
+                result.append(transaction)
+            }
+        }
+        return result
     }
 
     func setupRulesObserver() {
@@ -760,7 +916,7 @@ final class MainContentCoordinator {
 
     private func sidebarFavoriteTransactions() -> SidebarFavoritesCache {
         let key = SidebarFavoritesCacheKey(
-            transactionCount: transactions.count,
+            favoritesRevision: sidebarFavoritesRevision,
             persistedFavoriteCount: persistedFavorites.count,
             sessionGeneration: sessionGeneration
         )
@@ -797,6 +953,7 @@ struct SystemProxyWarning {
         case retry
         case retryStop
         case retryDisableSystemRouting
+        case restoreProxySettings
         case restoreSystemRouting
         case retryCaptureCheck
         case openHTTPSDecryption
@@ -815,6 +972,8 @@ struct SystemProxyWarning {
                 String(localized: "Stop Capture", bundle: RockxyLocalization.bundle)
             case .retryDisableSystemRouting:
                 String(localized: "Switch Off", bundle: RockxyLocalization.bundle)
+            case .restoreProxySettings:
+                String(localized: "Restore Proxy Settings", bundle: RockxyLocalization.bundle)
             case .restoreSystemRouting:
                 String(localized: "Restore System Routing", bundle: RockxyLocalization.bundle)
             case .retryCaptureCheck:
@@ -831,6 +990,32 @@ struct SystemProxyWarning {
                 String(localized: "Install & Trust Certificate", bundle: RockxyLocalization.bundle)
             }
         }
+    }
+
+    /// Shown while the Mac's proxy settings still point at Rockxy but the saved copy Rockxy would
+    /// restore them from could not be verified, so nothing will put them back on its own.
+    static var directRecordUnverifiedMessage: String {
+        String(
+            localized: """
+            Your Mac's proxy settings still point at Rockxy, and Rockxy could not verify the saved copy it \
+            would restore them from. If Rockxy quits unexpectedly, your network may stay behind a proxy \
+            that is no longer running. You can put the settings back now.
+            """,
+            bundle: RockxyLocalization.bundle
+        )
+    }
+
+    /// Shown when the watchdog that would restore the Mac's proxy settings is not running: it never
+    /// started, or it started and was stopped, as opposed to running and rejecting its saved copy.
+    static var directWatchdogNotRunningMessage: String {
+        String(
+            localized: """
+            Your Mac's proxy settings point at Rockxy, but the helper that restores them automatically \
+            is not running. If Rockxy quits unexpectedly, your network may stay behind a proxy that is \
+            no longer running. You can put the settings back now.
+            """,
+            bundle: RockxyLocalization.bundle
+        )
     }
 
     let message: String

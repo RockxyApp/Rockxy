@@ -63,32 +63,11 @@ struct WebSocketInspectorView: View {
 
     private static let maxPayloadPreviewBytes = 512
 
-    /// Opens the Protobuf view for binary frames that look like Protobuf or that a mapping
-    /// definition or gRPC method assigns a message type to.
-    private func prefersProtobufView(_ frame: WebSocketFrameData) -> Bool {
-        guard frame.opcode == .binary || !frame.payload.isProbablyUTF8Text else {
-            return false
-        }
-        if ProtobufDetector.isLikelyProtobuf(frame.payload) {
-            return true
-        }
-        let context = protobufContext(for: frame)
-        return ProtobufDecodeResolver.automaticChoice(
-            url: context.url,
-            method: context.method,
-            direction: context.direction
-        ) != .bestGuess
-    }
     /// Bounds for the frame list inside the scrolling tab: a few rows minimum so the selection
     /// context never vanishes, and a cap so long sessions scroll within the list.
     private static let frameRowHeight: CGFloat = 26
     private static let minimumFrameListRows = 3
     private static let maximumFrameListRows = 8
-
-    private func frameListHeight(for connection: WebSocketConnection) -> CGFloat {
-        let rows = max(Self.minimumFrameListRows, min(Self.maximumFrameListRows, filteredFrames(connection).count))
-        return CGFloat(rows) * Self.frameRowHeight + 8
-    }
 
     @State private var selectedFrameID: UUID?
     @State private var directionFilterValue: FrameDirection?
@@ -157,6 +136,39 @@ struct WebSocketInspectorView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
 
+                if frame.opcode == .connectionClose {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let closeOrigin = frame.closeOrigin {
+                            summaryRow(
+                                String(localized: "Close Origin", bundle: RockxyLocalization.bundle),
+                                value: closeOriginLabel(closeOrigin)
+                            )
+                        }
+                        if let closeCode = frame.closeCode {
+                            summaryRow(
+                                String(localized: "Close Code", bundle: RockxyLocalization.bundle),
+                                value: String(closeCode)
+                            )
+                        }
+                        if let closeReason = frame.closeReason, !closeReason.isEmpty {
+                            summaryRow(
+                                String(localized: "Close Reason", bundle: RockxyLocalization.bundle),
+                                value: closeReason
+                            )
+                        }
+                        if frame.isAbnormalTermination {
+                            Label(
+                                String(localized: "Abnormal Termination", bundle: RockxyLocalization.bundle),
+                                systemImage: "exclamationmark.triangle.fill"
+                            )
+                            .foregroundStyle(.orange)
+                        }
+                    }
+                    .font(.system(size: metrics.metadataFontSize))
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+                }
+
                 Divider()
 
                 framePayloadView(frame)
@@ -185,12 +197,11 @@ struct WebSocketInspectorView: View {
             HStack(spacing: 16) {
                 HStack(spacing: 4) {
                     summaryLabel(String(localized: "State", bundle: RockxyLocalization.bundle))
+                    let status = WebSocketConnectionStatus(transactionState: transaction.state)
                     Image(systemName: "circle.fill")
                         .font(.system(size: 6))
-                        .foregroundStyle(transaction.state == .completed ? .red : .green)
-                    Text(transaction.state == .completed
-                        ? String(localized: "Closed", bundle: RockxyLocalization.bundle)
-                        : String(localized: "Active", bundle: RockxyLocalization.bundle))
+                        .foregroundStyle(status.color)
+                    Text(status.title)
                         .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                 }
                 TimelineView(.animation(minimumInterval: 1, paused: !transaction.isRunning)) { context in
@@ -205,11 +216,17 @@ struct WebSocketInspectorView: View {
             HStack(spacing: 16) {
                 summaryRow(
                     String(localized: "Sent", bundle: RockxyLocalization.bundle),
-                    value: frameCountSummary(connection.sentFrames)
+                    value: frameCountSummary(
+                        frameCount: connection.sentFrameCount,
+                        payloadBytes: connection.sentPayloadSize
+                    )
                 )
                 summaryRow(
                     String(localized: "Received", bundle: RockxyLocalization.bundle),
-                    value: frameCountSummary(connection.receivedFrames)
+                    value: frameCountSummary(
+                        frameCount: connection.receivedFrameCount,
+                        payloadBytes: connection.receivedPayloadSize
+                    )
                 )
             }
             if connection.isCaptureLimitReached {
@@ -252,10 +269,12 @@ struct WebSocketInspectorView: View {
         Picker(selection: $directionFilterValue) {
             Text(String(localized: "All (\(connection.frameCount))", bundle: RockxyLocalization.bundle))
                 .tag(FrameDirection?.none)
-            Text("↑ \(String(localized: "Sent", bundle: RockxyLocalization.bundle)) (\(CountFormatter.format(connection.sentFrames.count)))")
-                .tag(Optional(FrameDirection.sent))
             Text(
-                "↓ \(String(localized: "Received", bundle: RockxyLocalization.bundle)) (\(CountFormatter.format(connection.receivedFrames.count)))"
+                "↑ \(String(localized: "Sent", bundle: RockxyLocalization.bundle)) (\(CountFormatter.format(connection.sentFrameCount)))"
+            )
+            .tag(Optional(FrameDirection.sent))
+            Text(
+                "↓ \(String(localized: "Received", bundle: RockxyLocalization.bundle)) (\(CountFormatter.format(connection.receivedFrameCount)))"
             )
             .tag(Optional(FrameDirection.received))
         } label: {
@@ -490,6 +509,43 @@ struct WebSocketInspectorView: View {
         .frame(height: 240)
     }
 
+    /// Stands in for a frame whose bytes cannot be shown as text. It sits in the same row as the
+    /// frame's own size column, so it has to be the shared formatter's spelling — building the
+    /// count by hand printed "(1048576 bytes)" beside that column's "1 MB".
+    private static func sizePlaceholder(for frame: WebSocketFrameData) -> String {
+        "(\(SizeFormatter.format(bytes: frame.payload.count)))"
+    }
+
+    /// Opens the Protobuf view for binary frames that look like Protobuf or that a mapping
+    /// definition or gRPC method assigns a message type to.
+    private func prefersProtobufView(_ frame: WebSocketFrameData) -> Bool {
+        guard frame.opcode == .binary || !frame.payload.isProbablyUTF8Text else {
+            return false
+        }
+        if ProtobufDetector.isLikelyProtobuf(frame.payload) {
+            return true
+        }
+        let context = protobufContext(for: frame)
+        return ProtobufDecodeResolver.automaticChoice(
+            url: context.url,
+            method: context.method,
+            direction: context.direction
+        ) != .bestGuess
+    }
+
+    private func frameListHeight(for connection: WebSocketConnection) -> CGFloat {
+        let rows = max(Self.minimumFrameListRows, min(Self.maximumFrameListRows, filteredFrames(connection).count))
+        return CGFloat(rows) * Self.frameRowHeight + 8
+    }
+
+    private func closeOriginLabel(_ value: String) -> String {
+        switch value.lowercased() {
+        case "local": String(localized: "Local", bundle: RockxyLocalization.bundle)
+        case "remote": String(localized: "Remote", bundle: RockxyLocalization.bundle)
+        default: value
+        }
+    }
+
     /// Client frames decode with a mapping's request type, server frames with its response type.
     private func protobufContext(for frame: WebSocketFrameData) -> ProtobufPayloadContext {
         ProtobufPayloadContext(
@@ -499,15 +555,16 @@ struct WebSocketInspectorView: View {
         )
     }
 
-    private func totalSize(_ frames: [WebSocketFrameData]) -> String {
-        SizeFormatter.format(bytes: frames.reduce(0) { $0 + $1.payload.count })
-    }
-
     /// "1,204 (2.3 MB)" — the frame count beside its own payload total. Both halves go through a
     /// shared formatter so the pair reads in one locale; the parentheses carry no wording to
     /// translate, so this stays a plain composition.
-    private func frameCountSummary(_ frames: [WebSocketFrameData]) -> String {
-        "\(CountFormatter.format(frames.count)) (\(totalSize(frames)))"
+    ///
+    /// Takes the two numbers rather than the frames: `sentFrames`/`receivedFrames` copy the whole
+    /// array under the connection's lock and then filter it, so reading a count that way cost a
+    /// full copy plus a full pass -- per summary, in a body that re-evaluates on every frame
+    /// refresh. `WebSocketConnection` keeps both as running totals for exactly this reason.
+    private func frameCountSummary(frameCount: Int, payloadBytes: Int) -> String {
+        "\(CountFormatter.format(frameCount)) (\(SizeFormatter.format(bytes: payloadBytes)))"
     }
 
     private func filteredFrames(_ connection: WebSocketConnection) -> [WebSocketFrameData] {
@@ -539,13 +596,6 @@ struct WebSocketInspectorView: View {
         case .connectionClose: ("close", .red)
         case .continuation: ("cont", .orange)
         }
-    }
-
-    /// Stands in for a frame whose bytes cannot be shown as text. It sits in the same row as the
-    /// frame's own size column, so it has to be the shared formatter's spelling — building the
-    /// count by hand printed "(1048576 bytes)" beside that column's "1 MB".
-    private static func sizePlaceholder(for frame: WebSocketFrameData) -> String {
-        "(\(SizeFormatter.format(bytes: frame.payload.count)))"
     }
 
     private func payloadPreview(_ frame: WebSocketFrameData) -> String {
@@ -589,6 +639,58 @@ struct WebSocketInspectorView: View {
     }
 }
 
+// MARK: - WebSocketConnectionStatus
+
+enum WebSocketConnectionStatus: Equatable {
+    case active
+    case closed
+    case failed
+    case blocked
+
+    // MARK: Lifecycle
+
+    init(transactionState: TransactionState) {
+        switch transactionState {
+        case .pending,
+             .active:
+            self = .active
+        case .completed:
+            self = .closed
+        case .failed:
+            self = .failed
+        case .blocked:
+            self = .blocked
+        }
+    }
+
+    // MARK: Internal
+
+    var title: String {
+        switch self {
+        case .active:
+            String(localized: "Active", bundle: RockxyLocalization.bundle)
+        case .closed:
+            String(localized: "Closed", bundle: RockxyLocalization.bundle)
+        case .failed:
+            String(localized: "Failed", bundle: RockxyLocalization.bundle)
+        case .blocked:
+            String(localized: "Blocked", bundle: RockxyLocalization.bundle)
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .active:
+            .green
+        case .closed,
+             .failed:
+            .red
+        case .blocked:
+            .orange
+        }
+    }
+}
+
 // MARK: - WebSocketPayloadInspectorMode
 
 private enum WebSocketPayloadInspectorMode {
@@ -614,7 +716,9 @@ enum WebSocketFrameList {
         _ frames: [WebSocketFrameData],
         direction: FrameDirection?,
         query: String
-    ) -> [WebSocketFrameData] {
+    )
+        -> [WebSocketFrameData]
+    {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard direction != nil || !query.isEmpty else {
             return frames

@@ -61,7 +61,13 @@ enum RequestCopyFormatter {
                 parts.append("--data-binary @- # <binary data, \(SizeFormatter.format(bytes: body.count))>")
             }
         }
-        return parts.joined(separator: " \\\n  ")
+        let command = parts.joined(separator: " \\\n  ")
+        guard BodyCompleteness(request).isUnknown,
+              let note = BodyCompleteness.exportNote(request: .unknown, response: nil) else
+        {
+            return command
+        }
+        return "# \(note)\n\(command)"
     }
 
     // MARK: - Cell Value
@@ -163,7 +169,7 @@ enum RequestCopyFormatter {
         if let body = request.body, let bodyString = String(data: body, encoding: .utf8) {
             raw += bodyString
         }
-        return raw
+        return prependingNote(to: raw, request: BodyCompleteness(request), response: nil)
     }
 
     static func rawResponse(for transaction: HTTPTransaction) -> String? {
@@ -178,7 +184,7 @@ enum RequestCopyFormatter {
         if let bodyString = readableResponseBody(response) {
             raw += bodyString
         }
-        return raw
+        return prependingNote(to: raw, request: .complete, response: BodyCompleteness(response))
     }
 
     /// The response body as text, decoded through `Content-Encoding` the same way the
@@ -214,6 +220,13 @@ enum RequestCopyFormatter {
                 respDict["body"] = bodyString
             }
             dict["response"] = respDict
+            if BodyCompleteness(response).isUnknown {
+                respDict["bodyCompleteness"] = "unknown"
+                dict["response"] = respDict
+            }
+        }
+        if BodyCompleteness(transaction.request).isUnknown {
+            dict["bodyCompleteness"] = "unknown"
         }
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else {
             return nil
@@ -232,6 +245,19 @@ enum RequestCopyFormatter {
     }
 
     // MARK: Private
+
+    private static func prependingNote(
+        to text: String,
+        request: BodyCompleteness,
+        response: BodyCompleteness?
+    )
+        -> String
+    {
+        guard let note = BodyCompleteness.exportNote(request: request, response: response) else {
+            return text
+        }
+        return "# \(note)\r\n\(text)"
+    }
 
     // MARK: - Shell Quoting
 

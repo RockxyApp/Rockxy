@@ -480,7 +480,7 @@ struct ScriptEditorWindowView: View {
     private var primaryActionControls: some View {
         HStack(spacing: toolMetrics.controlSpacing) {
             Button {
-                viewModel.validateScript()
+                Task { await viewModel.validateScript() }
             } label: {
                 footerActionLabel(String(localized: "Validate", bundle: RockxyLocalization.bundle))
             }

@@ -232,6 +232,35 @@ struct ProjectCoordinationTests {
         #expect(coordinator.transactions.map(\.id) == [alphaTraffic.id, lateAlpha.id])
     }
 
+    @Test("clearing another Project preserves a live stream's terminal snapshot")
+    func clearPreservesInactiveLiveStream() async {
+        let (catalog, alpha, beta) = Self.twoProjectCatalog()
+        let coordinator = MainContentCoordinator(
+            projectCatalogRepository: FakeProjectRepo(loadResult: .success(catalog))
+        )
+        await coordinator.hydrateProjectsOnLaunch()
+        await coordinator.configureSessionDeliveryCallbacks()
+        #expect(coordinator.switchToProject(id: beta.id))
+        let row = TestFixtures.makeTransaction(state: .active)
+        row.assignCaptureContextIfMissing(coordinator.activeCaptureContext)
+        await coordinator.sessionManager.addTransaction(row)
+        let opening = await coordinator.sessionManager.flushPendingUpdates()
+        coordinator.processBatch(opening, generation: coordinator.sessionGeneration)
+        #expect(coordinator.filteredRows.first?.state == .active)
+        #expect(coordinator.switchToProject(id: alpha.id))
+        await coordinator.clearSession()
+        #expect(coordinator.switchToProject(id: beta.id))
+        row.state = .failed
+        await coordinator.sessionManager.addTransaction(row, acceptsNewRows: false)
+        _ = await coordinator.sessionManager.flushPendingUpdates()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while coordinator.filteredRows.first?.state != .failed, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        #expect(coordinator.transactions.map(\.id) == [row.id])
+        #expect(coordinator.filteredRows.first?.state == .failed)
+    }
+
     @Test("clearing one project preserves completed traffic pending for another project")
     func clearPreservesInactivePendingBatch() async {
         let (catalog, alpha, beta) = Self.twoProjectCatalog()

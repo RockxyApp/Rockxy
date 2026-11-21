@@ -50,16 +50,46 @@ enum TimestampFormatter {
         unitsStyle: RelativeDateTimeFormatter.UnitsStyle = .full,
         locale: Locale = RockxyLocalization.locale
     ) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = locale
-        formatter.unitsStyle = unitsStyle
-        return formatter.localizedString(for: date, relativeTo: now)
+        relativeString(for: date, relativeTo: now, unitsStyle: unitsStyle, locale: locale)
     }
 
     // MARK: Private
 
     private static let lock = NSLock()
     nonisolated(unsafe) private static var cache: [String: DateFormatter] = [:]
+    nonisolated(unsafe) private static var relativeCache: [String: RelativeDateTimeFormatter] = [:]
+
+    /// Cached for the same reason the template formatters below are: callers sit in SwiftUI
+    /// bodies that re-evaluate per captured frame, and an `NSFormatter` allocation per call
+    /// also pays first-use locale and number setup. Keyed by locale and style because
+    /// `RelativeDateTimeFormatter` resolves its wording from both, so a language change still
+    /// takes effect.
+    ///
+    /// The string is produced INSIDE the lock, unlike the template formatters, which hand the
+    /// `DateFormatter` back to the caller. `DateFormatter` is documented thread-safe for
+    /// formatting; `RelativeDateTimeFormatter` carries no such guarantee, so handing one
+    /// instance to several threads would be a data race. Serializing the call keeps the
+    /// allocation saving without betting on an undocumented guarantee.
+    private static func relativeString(
+        for date: Date,
+        relativeTo now: Date,
+        unitsStyle: RelativeDateTimeFormatter.UnitsStyle,
+        locale: Locale
+    ) -> String {
+        let key = "\(locale.identifier)|\(unitsStyle.rawValue)"
+        lock.lock()
+        defer { lock.unlock() }
+        let formatter: RelativeDateTimeFormatter
+        if let cached = relativeCache[key] {
+            formatter = cached
+        } else {
+            formatter = RelativeDateTimeFormatter()
+            formatter.locale = locale
+            formatter.unitsStyle = unitsStyle
+            relativeCache[key] = formatter
+        }
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
 
     /// A localized template, not a fixed pattern: `setLocalizedDateFormatFromTemplate` resolves
     /// the field order and the 12-/24-hour choice from the locale. Cached per template, locale,

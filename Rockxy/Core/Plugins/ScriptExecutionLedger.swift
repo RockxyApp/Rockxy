@@ -12,13 +12,24 @@ import Foundation
 final class ScriptExecutionLedger: @unchecked Sendable {
     // MARK: Lifecycle
 
-    init(capacity: Int = 2_048) {
+    init(capacity: Int = 2_048, previewByteCapacity: Int = 32 * 1_024 * 1_024) {
         self.capacity = max(1, capacity)
+        self.previewByteCapacity = max(1, previewByteCapacity)
     }
 
     // MARK: Internal
 
     let capacity: Int
+
+    /// Total UTF-8 bytes of preview text and titles the ledger may hold across all flows.
+    ///
+    /// `capacity` bounds flows, not bytes, and `ScriptPreviewTab`'s own budgets are per tab:
+    /// 8 tabs per panel, 2 panels, 256 KiB of text and a 40-character title each. That is
+    /// ~4 MiB a flow, so 2,048 flows of count-capped previews is ~8 GiB — a script that
+    /// publishes a large preview on every exchange could park all of it here, since nothing
+    /// else drops a flow's previews before the FIFO reaches it. The byte bound evicts the
+    /// oldest flows, in the same FIFO order the count cap uses, until the total fits.
+    let previewByteCapacity: Int
 
     func record(scriptName: String, flowID: UUID) {
         lock.withLock {
@@ -55,10 +66,21 @@ final class ScriptExecutionLedger: @unchecked Sendable {
             if previewsByFlow[flowID] == nil {
                 previewOrder.append(flowID)
                 if previewOrder.count > capacity {
-                    previewsByFlow.removeValue(forKey: previewOrder.removeFirst())
+                    dropOldestPreviewFlow()
                 }
             }
+            previewByteCount -= previewBytesByFlow[flowID] ?? 0
+            let bytes = Self.byteCount(of: existing)
+            previewBytesByFlow[flowID] = bytes
+            previewByteCount += bytes
             previewsByFlow[flowID] = existing
+            // The flow just written is never the victim: it is last in `previewOrder`, and a
+            // single flow cannot exceed the budget on its own under `ScriptPreviewTab`'s
+            // per-tab bounds. The `count > 1` guard keeps that true for a smaller injected
+            // `previewByteCapacity` as well, so the caller always gets back what it recorded.
+            while previewByteCount > previewByteCapacity, previewOrder.count > 1 {
+                dropOldestPreviewFlow()
+            }
         }
     }
 
@@ -71,6 +93,22 @@ final class ScriptExecutionLedger: @unchecked Sendable {
     private let lock = NSLock()
     private var previewsByFlow: [UUID: [ScriptPreviewTab]] = [:]
     private var previewOrder: [UUID] = []
+    /// Each flow's contribution to `previewByteCount`, so a replaced panel can be subtracted
+    /// without re-measuring every other flow.
+    private var previewBytesByFlow: [UUID: Int] = [:]
+    private var previewByteCount = 0
     private var namesByFlow: [UUID: [String]] = [:]
     private var order: [UUID] = []
+
+    private static func byteCount(of tabs: [ScriptPreviewTab]) -> Int {
+        tabs.reduce(0) { $0 + $1.title.utf8.count + $1.text.utf8.count }
+    }
+
+    /// Caller holds `lock`. Drops the front of `previewOrder`, which is the FIFO shape the
+    /// count cap already used; only the byte accounting is new.
+    private func dropOldestPreviewFlow() {
+        let evicted = previewOrder.removeFirst()
+        previewsByFlow.removeValue(forKey: evicted)
+        previewByteCount -= previewBytesByFlow.removeValue(forKey: evicted) ?? 0
+    }
 }

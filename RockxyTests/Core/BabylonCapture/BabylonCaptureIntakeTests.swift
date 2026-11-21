@@ -138,13 +138,81 @@ struct BabylonCaptureIntakeTests {
                 stringValue: nil,
                 dataValue: nil,
                 closeCode: 1_001,
-                closeReason: "going away"
+                closeReason: "going away",
+                closeOrigin: "remote",
+                abnormal: false
             ))
         )
 
         #expect(frame.direction == .received)
         #expect(frame.opcode == .connectionClose)
         #expect(frame.payload == Data([0x03, 0xE9]) + Data("going away".utf8))
+        #expect(frame.closeCode == 1_001)
+        #expect(frame.closeReason == "going away")
+        #expect(frame.closeOrigin == "remote")
+        #expect(!frame.isAbnormalTermination)
+    }
+
+    @Test("Abnormal WebSocket termination preserves origin and reason")
+    func mapsAbnormalWebSocketTermination() throws {
+        let remote = try BabylonCaptureMapper.makeWebSocketFrame(
+            from: makeSocketPackage(.init(
+                id: "remote-abnormal",
+                createdAt: 1,
+                messageType: .abnormalTermination,
+                stringValue: nil,
+                dataValue: Data("connection lost".utf8),
+                closeReason: "connection lost",
+                closeOrigin: "remote",
+                abnormal: true
+            ))
+        )
+        let local = try BabylonCaptureMapper.makeWebSocketFrame(
+            from: makeSocketPackage(.init(
+                id: "local-abnormal",
+                createdAt: 2,
+                messageType: .abnormalTermination,
+                stringValue: nil,
+                dataValue: Data("cancelled".utf8),
+                closeReason: "cancelled",
+                closeOrigin: "local",
+                abnormal: true
+            ))
+        )
+
+        #expect(remote.direction == .received)
+        #expect(remote.opcode == .connectionClose)
+        #expect(remote.closeOrigin == "remote")
+        #expect(remote.closeReason == "connection lost")
+        #expect(remote.closeCode == nil)
+        #expect(remote.isAbnormalTermination)
+        #expect(remote.payload.isEmpty)
+        #expect(local.direction == .sent)
+        #expect(local.opcode == .connectionClose)
+        #expect(local.closeOrigin == "local")
+        #expect(local.isAbnormalTermination)
+        #expect(local.payload.isEmpty)
+    }
+
+    @Test("WebSocket close metadata survives session Codable round trip")
+    func websocketCloseMetadataSurvivesSessionCodableRoundTrip() throws {
+        let frame = WebSocketFrameData(
+            direction: .received,
+            opcode: .connectionClose,
+            payload: Data([0x03, 0xE9]) + Data("going away".utf8),
+            closeCode: 1_001,
+            closeReason: "going away",
+            closeOrigin: "remote",
+            isAbnormalTermination: true
+        )
+
+        let encoded = try JSONEncoder().encode(CodableWebSocketFrame(from: frame))
+        let decoded = try JSONDecoder().decode(CodableWebSocketFrame.self, from: encoded).toLiveModel()
+
+        #expect(decoded.closeCode == 1_001)
+        #expect(decoded.closeReason == "going away")
+        #expect(decoded.closeOrigin == "remote")
+        #expect(decoded.isAbnormalTermination)
     }
 
     @Test("An open WebSocket stays active until the SDK reports its end")
@@ -207,7 +275,9 @@ struct BabylonCaptureIntakeTests {
             endAt: endAt,
             packageType: packageType,
             correlationContext: nil,
-            websocketMessagePackage: nil
+            urlSessionTiming: nil,
+            websocketMessagePackage: nil,
+            grpcCapture: nil
         )
     }
 
@@ -222,7 +292,9 @@ struct BabylonCaptureIntakeTests {
             endAt: nil,
             packageType: .websocket,
             correlationContext: nil,
-            websocketMessagePackage: message
+            urlSessionTiming: nil,
+            websocketMessagePackage: message,
+            grpcCapture: nil
         )
     }
 }

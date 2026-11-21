@@ -12,6 +12,8 @@ struct CommandPaletteView: View {
 
     let commands: [CommandPaletteCommand]
     let onRun: (CommandPaletteCommand) -> Void
+    /// Commands that cannot run right now, keyed by command id, with the reason shown on the row.
+    var unavailableReasons: [CommandPaletteCommand.ID: String] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,7 +56,7 @@ struct CommandPaletteView: View {
                             .id(command.id)
                             .contentShape(Rectangle())
                             .onTapGesture(count: 2) {
-                                onRun(command)
+                                run(command)
                             }
                     }
                     .listStyle(.plain)
@@ -95,7 +97,8 @@ struct CommandPaletteView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(command.title)
-                Text(command.category)
+                    .foregroundStyle(unavailableReasons[command.id] == nil ? .primary : .secondary)
+                Text(unavailableReasons[command.id] ?? command.category)
                     .font(.system(size: metrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
             }
@@ -108,6 +111,15 @@ struct CommandPaletteView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+        .help(unavailableReasons[command.id] ?? "")
+    }
+
+    /// An unavailable command stays visible with its reason and does nothing when chosen.
+    private func run(_ command: CommandPaletteCommand) {
+        guard unavailableReasons[command.id] == nil else {
+            return
+        }
+        onRun(command)
     }
 
     private func moveSelection(by offset: Int) {
@@ -123,7 +135,7 @@ struct CommandPaletteView: View {
         guard let command = results.first(where: { $0.id == selection }) ?? results.first else {
             return
         }
-        onRun(command)
+        run(command)
     }
 }
 
@@ -142,15 +154,19 @@ struct CommandPaletteSheet: ViewModifier {
             get: { lifecycleState.showCommandPalette },
             set: { lifecycleState.showCommandPalette = $0 }
         )) {
-            CommandPaletteView(commands: CommandPaletteCatalog.commands) { command in
-                lifecycleState.showCommandPalette = false
-                // Run after the sheet closes so panels and windows the command
-                // opens are not presented over a dismissing sheet.
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(200))
-                    perform(command.action)
-                }
-            }
+            CommandPaletteView(
+                commands: CommandPaletteCatalog.commands,
+                onRun: { command in
+                    lifecycleState.showCommandPalette = false
+                    // Run after the sheet closes so panels and windows the command
+                    // opens are not presented over a dismissing sheet.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(200))
+                        perform(command.action)
+                    }
+                },
+                unavailableReasons: systemProxyUnavailableReason.map { ["proxy.system": $0] } ?? [:]
+            )
         }
     }
 
@@ -158,6 +174,14 @@ struct CommandPaletteSheet: ViewModifier {
 
     @Environment(\.openWindow) private var openWindow
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
+    @AppStorage(AutomaticSystemProxyRouting.modeDefaultsKey) private var storedRoutingMode = ""
+
+    private var systemProxyUnavailableReason: String? {
+        AutomaticSystemProxyRouting.acquisitionUnavailableReason(
+            storedMode: storedRoutingMode,
+            isOverrideActive: coordinator.isSystemProxyConfigured
+        )
+    }
 
     private func perform(_ action: CommandPaletteAction) {
         let actions = MainContentCommandActions(coordinator: coordinator)

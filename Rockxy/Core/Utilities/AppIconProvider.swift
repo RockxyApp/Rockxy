@@ -43,7 +43,8 @@ enum AppIconProvider {
 
     private static var applicationIcons: [String: NSImage] = [:]
     private static var resizedApplicationIcons: [ApplicationIconCacheKey: NSImage] = [:]
-    private static var missingApplicationIconNames: Set<String> = []
+    /// Bounded: the name is client-controlled, the cache outlives the rows it was built for.
+    private static var missingApplicationIconNames = MissingIconNameCache()
 
     private static let bundleIDByApplicationName: [String: String] = [
         "Arc": "company.thebrowser.Browser",

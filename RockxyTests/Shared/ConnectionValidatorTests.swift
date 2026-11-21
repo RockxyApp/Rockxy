@@ -1,3 +1,30 @@
+@Test("isValidCaller refuses a test-host PID whose Data audit token does not resolve")
+func refusesConnectionWithUnresolvableDataAuditToken() {
+    guard supportsLiveConnectionValidationHost() else {
+        return
+    }
+
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let token = Data(repeating: 0, count: MemoryLayout<audit_token_t>.size)
+    let connection = TestXPCConnection(fakePID: pid, auditTokenValue: token)
+    defer { connection.invalidate() }
+
+    #expect(!ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
+}
+
+@Test("isValidCaller refuses a test-host PID whose NSValue audit token does not resolve")
+func refusesConnectionWithUnresolvableNSValueAuditToken() {
+    guard supportsLiveConnectionValidationHost() else {
+        return
+    }
+
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let connection = TestXPCConnection(fakePID: pid, auditTokenValue: makeAuditTokenNSValue())
+    defer { connection.invalidate() }
+
+    #expect(!ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
+}
+
 import Foundation
 @testable import Rockxy
 import Security
@@ -16,56 +43,13 @@ struct ConnectionValidatorTests {
 
     @Test("ConnectionValidator reads the expected allowlist from RockxyIdentity")
     func allowlistMatchesIdentityConfig() {
-        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
+        guard !TestIdentity.isRunningUnderRawXCTestTool else {
+            return
+        }
         let ids = RockxyIdentity.current.allowedCallerIdentifiers
         for expected in TestIdentity.expectedAllowedCallerIdentifiers {
             #expect(ids.contains(expected))
         }
-    }
-
-    // MARK: - isValidCaller(_:) Accept Path
-
-    @Test("isValidCaller accepts connection with real test-host PID")
-    func acceptsConnectionWithTestHostPID() {
-        guard supportsLiveConnectionValidationHost() else {
-            return
-        }
-
-        let pid = ProcessInfo.processInfo.processIdentifier
-        let connection = TestXPCConnection(fakePID: pid)
-        defer { connection.invalidate() }
-
-        #expect(ConnectionValidator.isValidCaller(connection))
-    }
-
-    @Test("isValidCaller accepts connection with test-host PID and Data audit token")
-    func acceptsConnectionWithDataAuditToken() {
-        guard supportsLiveConnectionValidationHost() else {
-            return
-        }
-
-        let pid = ProcessInfo.processInfo.processIdentifier
-        // Zero-filled token → secCodeFromAuditToken returns nil → audit recheck skipped.
-        // PID validation passes → accept.
-        let token = Data(repeating: 0, count: MemoryLayout<audit_token_t>.size)
-        let connection = TestXPCConnection(fakePID: pid, auditTokenValue: token)
-        defer { connection.invalidate() }
-
-        #expect(ConnectionValidator.isValidCaller(connection))
-    }
-
-    @Test("isValidCaller accepts connection with test-host PID and NSValue audit token")
-    func acceptsConnectionWithNSValueAuditToken() {
-        guard supportsLiveConnectionValidationHost() else {
-            return
-        }
-
-        let pid = ProcessInfo.processInfo.processIdentifier
-        let nsValue = makeAuditTokenNSValue()
-        let connection = TestXPCConnection(fakePID: pid, auditTokenValue: nsValue)
-        defer { connection.invalidate() }
-
-        #expect(ConnectionValidator.isValidCaller(connection))
     }
 
     // MARK: - isValidCaller(_:) Accept Path with Real Audit Token Revalidation
@@ -88,7 +72,7 @@ struct ConnectionValidatorTests {
         let connection = TestXPCConnection(fakePID: pid, auditTokenValue: realToken)
         defer { connection.invalidate() }
 
-        #expect(ConnectionValidator.isValidCaller(connection))
+        #expect(ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
     }
 
     @Test("isValidCaller exercises audit-token revalidation branch with real NSValue token")
@@ -108,7 +92,7 @@ struct ConnectionValidatorTests {
         let connection = TestXPCConnection(fakePID: pid, auditTokenValue: nsValue)
         defer { connection.invalidate() }
 
-        #expect(ConnectionValidator.isValidCaller(connection))
+        #expect(ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
     }
 
     @Test("validateCaller exercises audit-token revalidation with real token data")
@@ -124,7 +108,7 @@ struct ConnectionValidatorTests {
         }
 
         // secCodeFromAuditToken(realToken) → real SecCode → callerSatisfiesAnyIdentifier → true
-        #expect(ConnectionValidator.validateCaller(pid: pid, auditTokenData: realToken))
+        #expect(ConnectionValidator.validateCaller(pid: pid, auditTokenData: realToken, enforcement: .validatorOnly))
     }
 
     @Test("secCodeFromAuditToken returns non-nil for real current-process audit token")
@@ -145,7 +129,7 @@ struct ConnectionValidatorTests {
         let connection = TestXPCConnection(fakePID: 0)
         defer { connection.invalidate() }
 
-        #expect(!ConnectionValidator.isValidCaller(connection))
+        #expect(!ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
     }
 
     @Test("isValidCaller rejects real client-side connection (processIdentifier == 0)")
@@ -153,7 +137,7 @@ struct ConnectionValidatorTests {
         let connection = NSXPCConnection(serviceName: "com.amunx.rockxy.test.stub")
         defer { connection.invalidate() }
         #expect(connection.processIdentifier == 0)
-        #expect(!ConnectionValidator.isValidCaller(connection))
+        #expect(!ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
     }
 
     // MARK: - extractAuditTokenData Branch Coverage
@@ -197,19 +181,86 @@ struct ConnectionValidatorTests {
 
     // MARK: - validateCaller(pid:auditTokenData:) Seam
 
-    @Test("validateCaller accepts test host PID with no audit token")
-    func acceptsTestHostPIDNoAuditToken() {
+    @Test("validateCaller refuses a valid test host PID when no audit token is available")
+    func refusesTestHostPIDNoAuditToken() {
         guard supportsLiveConnectionValidationHost() else {
             return
         }
 
         let pid = ProcessInfo.processInfo.processIdentifier
-        #expect(ConnectionValidator.validateCaller(pid: pid, auditTokenData: nil))
+        #expect(!ConnectionValidator.validateCaller(pid: pid, auditTokenData: nil, enforcement: .validatorOnly))
+        #expect(ConnectionValidator
+            .refusal(pid: pid, auditTokenData: nil, enforcement: .validatorOnly) == .auditTokenUnavailable)
+    }
+
+    @Test("isValidCaller refuses a valid PID when the audit token key yields nothing")
+    func refusesConnectionWhenTokenKeyYieldsNothing() {
+        guard supportsLiveConnectionValidationHost() else {
+            return
+        }
+
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let connection = TestXPCConnection(fakePID: pid, auditTokenValue: nil)
+        defer { connection.invalidate() }
+
+        #expect(!ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
+    }
+
+    @Test("refusal reports an unresolvable token distinctly")
+    func refusalReportsUnresolvableToken() {
+        guard supportsLiveConnectionValidationHost() else {
+            return
+        }
+
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let zero = Data(repeating: 0, count: MemoryLayout<audit_token_t>.size)
+        #expect(ConnectionValidator
+            .refusal(pid: pid, auditTokenData: zero, enforcement: .validatorOnly) == .auditTokenUnresolvable)
+    }
+
+    @Test("refusal is nil for the real current-process token")
+    func noRefusalForRealToken() {
+        guard supportsLiveConnectionValidationHost(),
+              let realToken = CallerValidation.currentProcessAuditToken() else
+        {
+            return
+        }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        #expect(ConnectionValidator.refusal(pid: pid, auditTokenData: realToken, enforcement: .validatorOnly) == nil)
+    }
+
+    @Test("runtime requirement applied: unreadable or unresolvable token is accepted")
+    func acceptsUnreadableTokenWhenRuntimeEnforces() {
+        guard supportsLiveConnectionValidationHost() else {
+            return
+        }
+
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let zero = Data(repeating: 0, count: MemoryLayout<audit_token_t>.size)
+        #expect(ConnectionValidator
+            .refusal(pid: pid, auditTokenData: nil, enforcement: .runtimeRequirementApplied) == nil)
+        #expect(ConnectionValidator
+            .refusal(pid: pid, auditTokenData: zero, enforcement: .runtimeRequirementApplied) == nil)
+        let connection = TestXPCConnection(fakePID: pid, auditTokenValue: nil)
+        defer { connection.invalidate() }
+        #expect(ConnectionValidator.isValidCaller(connection, enforcement: .runtimeRequirementApplied))
+    }
+
+    @Test("runtime requirement applied: PID check is unchanged")
+    func runtimeRequirementDoesNotBypassPIDCheck() {
+        #expect(ConnectionValidator
+            .refusal(pid: 0, auditTokenData: nil, enforcement: .runtimeRequirementApplied) == .pidValidationFailed)
+    }
+
+    @Test("refusal reports PID failure before any token handling")
+    func refusalReportsPIDFailure() {
+        #expect(ConnectionValidator
+            .refusal(pid: 0, auditTokenData: nil, enforcement: .validatorOnly) == .pidValidationFailed)
     }
 
     @Test("validateCaller rejects invalid PID")
     func rejectsInvalidPID() {
-        #expect(!ConnectionValidator.validateCaller(pid: 0, auditTokenData: nil))
+        #expect(!ConnectionValidator.validateCaller(pid: 0, auditTokenData: nil, enforcement: .validatorOnly))
     }
 
     // MARK: - Audit Token Data Handling

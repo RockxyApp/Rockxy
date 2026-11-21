@@ -76,6 +76,11 @@ struct SystemProxyManagerTests {
         #expect(SystemProxyManager.shouldProbeHelperForOverride(helperStatus: .installedCompatible))
         #expect(SystemProxyManager.shouldProbeHelperForOverride(helperStatus: .requiresApproval))
         #expect(SystemProxyManager.shouldProbeHelperForOverride(helperStatus: .installedOutdated))
+        // A helper that is present but cannot answer costs the same timeout as one that is
+        // absent. Measured on a machine logging "registered but not reachable: XPC call timed
+        // out", where every override check paid the full probe budget for nothing.
+        #expect(!SystemProxyManager.shouldProbeHelperForOverride(helperStatus: .unreachable))
+        #expect(!SystemProxyManager.shouldProbeHelperForOverride(helperStatus: .signingMismatch))
     }
 
     @Test("routing readiness requires every fallback service to match")

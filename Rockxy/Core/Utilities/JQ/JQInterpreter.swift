@@ -37,13 +37,14 @@ struct JQFilter: Sendable {
         let box = ResultBox()
         let done = DispatchSemaphore(value: 0)
         let root = root
-        let thread = Thread {
+        // The caller blocks on `done` just below, and that caller can be the main thread
+        // rendering a custom column, so the worker runs at `userInitiated`: left at the
+        // default service class the thread we are waiting for runs below its waiter, which
+        // is a priority inversion.
+        JQEvaluationThreads.shared.run {
             box.result = Result { try Self.evaluate(root, input, limits, cancellation) }
             done.signal()
         }
-        thread.stackSize = Self.stackSize
-        thread.name = "jq filter"
-        thread.start()
         done.wait()
         return try box.result.get()
     }
@@ -63,8 +64,6 @@ struct JQFilter: Sendable {
     private final class ResultBox: @unchecked Sendable {
         var result: Result<Output, Error> = .success(Output(values: [], isTruncated: false))
     }
-
-    private static let stackSize = 64 * 1_024 * 1_024
 
     private let root: JQNode
 
@@ -97,15 +96,122 @@ struct JQFilter: Sendable {
         let root = root
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Output, Error>) in
-                let thread = Thread {
+                // Someone is looking at an inspector pane, or a table cell, waiting for this.
+                JQEvaluationThreads.shared.run {
                     continuation.resume(with: Result { try Self.evaluate(root, input(), limits, cancellation) })
                 }
-                thread.stackSize = Self.stackSize
-                thread.name = "jq filter"
-                thread.start()
             }
         } onCancel: {
             cancellation.cancel()
+        }
+    }
+}
+
+// MARK: - JQEvaluationThreads
+
+/// Runs filter evaluations on threads with a large stack, reusing a parked one when there is one.
+///
+/// Evaluation cannot simply run on the cooperative pool: deep filters recurse further than a
+/// Swift concurrency thread's stack allows. But a traffic table showing a jq custom column used
+/// to pay a whole thread creation, and a fresh 64 MB stack reservation, for every newly visible
+/// cell -- once per row, on the pass that was already the scroll hitch.
+///
+/// Work is never queued behind a busy worker. If every parked thread is already evaluating, this
+/// starts another one and retires it afterwards. A single shared worker, or a fixed pool with a
+/// queue, would be cheaper still -- but one slow filter would then hold up every other cell's
+/// value, and a table that fills its visible rows one slow step at a time reads as a frozen
+/// window rather than as one slow column.
+final class JQEvaluationThreads: @unchecked Sendable {
+    // MARK: Internal
+
+    static let shared = JQEvaluationThreads()
+
+    /// Hands `work` to a parked thread, or to a newly started one when none is parked.
+    func run(_ work: @escaping @Sendable () -> Void) {
+        if let worker = lock.withLock({ parked.popLast() }) {
+            worker.resume(with: work)
+        } else {
+            Worker(threads: self).start(with: work)
+        }
+    }
+
+    // MARK: Fileprivate
+
+    /// Parks `worker` for reuse, or reports that it should exit because enough are parked
+    /// already. Four covers the columns a table can plausibly be resolving at once; the stacks
+    /// are reserved address space rather than resident memory, but they are not free either.
+    fileprivate func park(_ worker: Worker) -> Bool {
+        lock.withLock {
+            guard parked.count < Self.maximumParkedThreads else {
+                return false
+            }
+            parked.append(worker)
+            return true
+        }
+    }
+
+    // MARK: Private
+
+    /// Deep filters recurse further than a Swift concurrency thread allows, so the stack stays
+    /// large. Reusing the thread is what removes the per-cell cost, not shrinking this.
+    private static let stackSize = 64 * 1_024 * 1_024
+    private static let maximumParkedThreads = 4
+
+    private let lock = NSLock()
+    private var parked: [Worker] = []
+}
+
+// MARK: JQEvaluationThreads.Worker
+
+private extension JQEvaluationThreads {
+    /// One large-stack thread that evaluates filters and then parks for the next one.
+    ///
+    /// `pending` carries the work across threads without a lock of its own: a worker is handed
+    /// out by popping it off `parked` under the lock, so exactly one submitter owns it at a
+    /// time, and the semaphore signal/wait pair orders that submitter's write before the
+    /// worker's read.
+    final class Worker: @unchecked Sendable {
+        // MARK: Lifecycle
+
+        init(threads: JQEvaluationThreads) {
+            self.threads = threads
+        }
+
+        // MARK: Internal
+
+        /// Starts the backing thread on its first unit of work.
+        func start(with work: @escaping @Sendable () -> Void) {
+            pending = work
+            let thread = Thread { [self] in evaluateUntilRetired() }
+            thread.stackSize = JQEvaluationThreads.stackSize
+            // Callers either block on the result or are an inspector pane someone is looking
+            // at, so the worker must not run below its waiter.
+            thread.qualityOfService = .userInitiated
+            thread.name = "jq filter"
+            thread.start()
+        }
+
+        /// Wakes a parked thread on its next unit of work.
+        func resume(with work: @escaping @Sendable () -> Void) {
+            pending = work
+            resumed.signal()
+        }
+
+        // MARK: Private
+
+        private let threads: JQEvaluationThreads
+        private let resumed = DispatchSemaphore(value: 0)
+        private var pending: (@Sendable () -> Void)?
+
+        private func evaluateUntilRetired() {
+            while let work = pending {
+                pending = nil
+                work()
+                guard threads.park(self) else {
+                    return
+                }
+                resumed.wait()
+            }
         }
     }
 }
@@ -668,15 +774,15 @@ final class JQInterpreter {
 
     // MARK: Private
 
-    private var steps = 0
-    private var depth = 0
-
     private enum Operation {
         case add
         case subtract
         case multiply
         case divide
     }
+
+    private var steps = 0
+    private var depth = 0
 
     private func operandError(_ left: JQValue, _ right: JQValue, _ operation: Operation) -> JQError {
         let lhs = Self.describe(left)

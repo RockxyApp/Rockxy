@@ -34,7 +34,8 @@ nonisolated enum GRPCDetector {
         request: HTTPRequestData,
         response: HTTPResponseData?,
         timingInfo: TimingInfo?,
-        measuredDuration: TimeInterval?
+        measuredDuration: TimeInterval?,
+        callType: String? = nil
     )
         -> GRPCInspection?
     {
@@ -70,6 +71,7 @@ nonisolated enum GRPCDetector {
             requestFrames: requestFrames,
             responseFrames: responseFrames
         )
+        inspection.callType = callType
         inspection.timeout = headerValue(named: "grpc-timeout", in: request.headers)
         inspection.requestMetadata = customMetadata(request.headers)
         inspection.responseMetadata = customMetadata(statusFields)
@@ -170,15 +172,14 @@ nonisolated enum GRPCDetector {
             let payload = Data(body[payloadStart ..< payloadEnd])
 
             let isTrailerFrame = compressedFlag & 0x80 != 0
-            let status: GRPCFrameParseStatus
-            if isTrailerFrame, availablePayloadBytes >= declaredLength {
-                status = .trailers
+            let status: GRPCFrameParseStatus = if isTrailerFrame, availablePayloadBytes >= declaredLength {
+                .trailers
             } else if !isTrailerFrame, compressedFlag != 0, compressedFlag != 1 {
-                status = .unsupportedCompressionFlag(compressedFlag)
+                .unsupportedCompressionFlag(compressedFlag)
             } else if availablePayloadBytes < declaredLength {
-                status = .truncatedPayload(expectedBytes: declaredLength, actualBytes: availablePayloadBytes)
+                .truncatedPayload(expectedBytes: declaredLength, actualBytes: availablePayloadBytes)
             } else {
-                status = .complete
+                .complete
             }
 
             let tree = compressedFlag == 0 && status == .complete

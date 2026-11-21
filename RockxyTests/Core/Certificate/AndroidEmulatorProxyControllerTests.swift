@@ -102,15 +102,19 @@ struct AndroidEmulatorProxyControllerTests {
         }
         let emulator = AndroidEmulator(serial: "emulator-5554")
         func succeeded(_ result: Result<Void, AndroidEmulatorError>?) -> Bool {
-            if case .success = result { true } else { false }
+            if case .success = result {
+                true
+            } else {
+                false
+            }
         }
 
         let (same, sameRunner) = controller(existing: pem.replacingOccurrences(of: "\n", with: "\r\n"))
-        #expect(succeeded(await same.routeThroughRockxy([emulator], proxyPort: 9_090, certificatePEM: pem)[emulator]))
+        #expect(await succeeded(same.routeThroughRockxy([emulator], proxyPort: 9_090, certificatePEM: pem)[emulator]))
         #expect(!sameRunner.commands.contains { $0.last == alternate })
 
         let (other, otherRunner) = controller(existing: "-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----\n")
-        #expect(succeeded(await other.routeThroughRockxy([emulator], proxyPort: 9_090, certificatePEM: pem)[emulator]))
+        #expect(await succeeded(other.routeThroughRockxy([emulator], proxyPort: 9_090, certificatePEM: pem)[emulator]))
         #expect(otherRunner.commands.contains { $0.contains("push") && $0.last == alternate })
         #expect(alternate.hasPrefix("/sdcard/Download/rockxy-root-ca-") && alternate.hasSuffix(".pem"))
     }
@@ -295,28 +299,17 @@ struct AndroidEmulatorProxyControllerTests {
 
 extension AndroidEmulatorProxyControllerTests {
     /// A throwaway public CA whose `openssl x509 -subject_hash_old` is 5e7ceb16.
-    static let testCAPEM = """
-    -----BEGIN CERTIFICATE-----
-    MIIDWTCCAkGgAwIBAgIUR99dRFXTaSijpanetcNoYZdE4sAwDQYJKoZIhvcNAQEL
-    BQAwNDEeMBwGA1UEAwwVUm9ja3h5IEFjY2VwdCBUZXN0IENBMRIwEAYDVQQKDAlS
-    b2NreHkgUUEwHhcNMjYxMDAyMDIyNjQ2WhcNMjYxMTAxMDIyNjQ2WjA0MR4wHAYD
-    VQQDDBVSb2NreHkgQWNjZXB0IFRlc3QgQ0ExEjAQBgNVBAoMCVJvY2t4eSBRQTCC
-    ASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAL7Onn0K92u7U11nnK5LPW1r
-    gsCCersoZ+nWRJN0eD3qACQb3ZicMq++qFmFJJyXQD+B0QKUTonmHK+Dnnhtx0Qp
-    xS5FzSSaroFC4bJYxG7NasDr5/+cmk+sbttygzxEYSsPqbixAMwOnXO9/UqBO0Sn
-    EMzghIpgFeJR1klj0FO9w6xJ6rtPyNeN9zv3TGtrH1fRLLlINaYmcaPssdRlitFl
-    3klTMqMae1941y3Ew5/tcv49BoW6neeqKfZXt3s2KK3AJii1GXEMfgfnyX5MZojj
-    Apj86JIR7UiQ2k03Xj+tcjXdb4ZYv/xCH7jKwR0JETcKBcGiK+QnNCPi/iDAQNMC
-    AwEAAaNjMGEwHQYDVR0OBBYEFB0OmSjzt/5pgsZxLprtru6dYa5dMB8GA1UdIwQY
-    MBaAFB0OmSjzt/5pgsZxLprtru6dYa5dMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0P
-    AQH/BAQDAgEGMA0GCSqGSIb3DQEBCwUAA4IBAQA5E++87bNypuvj8fmEriiGPkrB
-    Aaa85AR4drUY1uhi3XjCwDlyih3+vWT0Qpr2dCF7t05nIUvqySmBo/RsgQEi+zao
-    Ni2eaRNVmorl/0wODMzyNbO+gXREiH8an19dh7HbuDaLB401II8Fj+OKsjweJulb
-    vYqdO2arZWU7VjJnYyN2/JiA8YeEk7OrxFbgJITsCDdDDuqlzFeogs71yxVV87Z6
-    c87mF0HVzHAUxVqEJIR4Jot2pe/zvwopeAsNyVeEOqAdeYE0oAA2Btz3XBtEGHNF
-    bB1fNDznlguuU5IV7B0OaB9b2xylyxO5f7er3F/w5J5UNeLN20dTu3MNOTQa
-    -----END CERTIFICATE-----
-    """
+    ///
+    /// Minted when first used rather than checked in, so it cannot expire. The subject hash is a
+    /// function of the subject alone, which is why the fixed name below keeps the asserted
+    /// `5e7ceb16.0` file name valid for any key and validity window.
+    static let testCAPEM: String = {
+        guard let identity = try? TestCertificateFactory.root(subject: "/CN=Rockxy Accept Test CA/O=Rockxy QA") else {
+            Issue.record("Could not mint the test CA with /usr/bin/openssl")
+            return ""
+        }
+        return identity.certificatePEM
+    }()
 }
 
 // MARK: - ScriptedADBRunner

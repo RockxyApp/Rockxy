@@ -11,16 +11,21 @@ final class HelperDelegate: NSObject, NSXPCListenerDelegate {
     )
         -> Bool
     {
-        guard ConnectionValidator.isValidCaller(connection) else {
+        // Apply the runtime signing requirement FIRST (it must precede resume) so the validator
+        // is told, not left to guess, whether the runtime is already enforcing identity.
+        let enforcement = Self.applyRuntimeSigningRequirement(to: connection)
+
+        guard ConnectionValidator.isValidCaller(connection, enforcement: enforcement) else {
             Self.logger.warning("Rejected XPC connection from untrusted caller (pid: \(connection.processIdentifier))")
             return false
         }
 
         let processID = connection.processIdentifier
         guard let startSignature = ProcessStartIdentity.startSignature(for: processID),
-              !startSignature.isEmpty
-        else {
-            Self.logger.warning("Rejected XPC connection whose process identity could not be captured (pid: \(processID))")
+              !startSignature.isEmpty else
+        {
+            Self.logger
+                .warning("Rejected XPC connection whose process identity could not be captured (pid: \(processID))")
             return false
         }
 
@@ -54,4 +59,27 @@ final class HelperDelegate: NSObject, NSXPCListenerDelegate {
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "HelperDelegate")
+
+    /// Returns `.runtimeRequirementApplied` only when a requirement was built, pre-compiled by
+    /// `SecRequirementCreateWithString`, and `setCodeSigningRequirement` then returned. The call
+    /// raises an Objective-C exception on a malformed string, which Swift cannot catch, so the
+    /// pre-compile in `connectionCodeSigningRequirement` is the guard against reaching it.
+    private static func applyRuntimeSigningRequirement(
+        to connection: NSXPCConnection
+    )
+        -> ConnectionValidator.IdentityEnforcement
+    {
+        guard let requirement = CallerValidation.connectionCodeSigningRequirement(
+            helper: CallerValidation.launchSigningProfile,
+            allowedIdentifiers: RockxyIdentity.current.allowedCallerIdentifiers
+        ) else {
+            logger
+                .warning(
+                    "No team-based XPC code-signing requirement available; audit-token check is the only identity enforcement"
+                )
+            return .validatorOnly
+        }
+        connection.setCodeSigningRequirement(requirement)
+        return .runtimeRequirementApplied
+    }
 }

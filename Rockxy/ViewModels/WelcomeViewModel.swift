@@ -222,7 +222,9 @@ final class WelcomeViewModel {
     nonisolated static func systemProxyStepComplete(
         isCaptureActive: Bool,
         systemRoutingReady: Bool
-    ) -> Bool {
+    )
+        -> Bool
+    {
         isCaptureActive && systemRoutingReady
     }
 
@@ -392,6 +394,8 @@ final class WelcomeViewModel {
 
     func enableProxy(using operation: (@MainActor () async throws -> Void)? = nil) async {
         await perform(.systemProxy, errorArea: .systemProxy) {
+            // The reason is shown as this step's error; nothing is attempted in "Never".
+            try AutomaticSystemProxyRouting.requireExplicitAcquisition()
             if let operation {
                 try await operation()
             } else {

@@ -41,17 +41,40 @@ enum LoopbackProxyOwnershipPolicy {
 
     static let loopbackHost = "127.0.0.1"
 
+    /// Whether a configured proxy host reaches this machine.
+    ///
+    /// Rockxy always writes the literal `127.0.0.1`, but the settings read here are the user's,
+    /// and another proxy app is free to write `localhost`, `::1`, or any address in 127.0.0.0/8.
+    /// Recognising only one spelling meant those configurations produced no ports to probe, so the
+    /// baseline check decided the machine had no loopback proxy at all and skipped the ownership
+    /// question it exists to ask.
+    static func isLoopbackHost(_ host: String) -> Bool {
+        let trimmed = host.trimmingCharacters(in: .whitespaces).lowercased()
+        // An IPv6 literal reaches networksetup wrapped in brackets in some configurations.
+        let bare = trimmed.hasPrefix("[") && trimmed.hasSuffix("]")
+            ? String(trimmed.dropFirst().dropLast())
+            : trimmed
+        if bare == "localhost" || bare == "::1" || bare == "0:0:0:0:0:0:0:1" {
+            return true
+        }
+        let octets = bare.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4, octets.allSatisfy({ UInt8($0) != nil }) else {
+            return false
+        }
+        return octets[0] == "127"
+    }
+
     /// The distinct loopback ports that enabled HTTP, HTTPS, or SOCKS proxies point at.
     static func enabledLoopbackPorts(in snapshots: [ServiceProxySnapshot]) -> [Int] {
         var ports = Set<Int>()
         for snapshot in snapshots {
-            if snapshot.httpEnabled, snapshot.httpHost == loopbackHost, snapshot.httpPort > 0 {
+            if snapshot.httpEnabled, isLoopbackHost(snapshot.httpHost), snapshot.httpPort > 0 {
                 ports.insert(snapshot.httpPort)
             }
-            if snapshot.httpsEnabled, snapshot.httpsHost == loopbackHost, snapshot.httpsPort > 0 {
+            if snapshot.httpsEnabled, isLoopbackHost(snapshot.httpsHost), snapshot.httpsPort > 0 {
                 ports.insert(snapshot.httpsPort)
             }
-            if snapshot.socksEnabled, snapshot.socksHost == loopbackHost, snapshot.socksPort > 0 {
+            if snapshot.socksEnabled, isLoopbackHost(snapshot.socksHost), snapshot.socksPort > 0 {
                 ports.insert(snapshot.socksPort)
             }
         }

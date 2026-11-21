@@ -15,14 +15,22 @@ enum LogCorrelator {
     )
         -> UUID?
     {
-        // Find the closest transaction within the time window
-        let matchingTransaction = transactions
-            .filter { abs($0.timestamp.timeIntervalSince(logEntry.timestamp)) < timeWindow }
-            .min {
-                abs($0.timestamp.timeIntervalSince(logEntry.timestamp)) <
-                    abs($1.timestamp.timeIntervalSince(logEntry.timestamp))
+        // Capture completion order is not timestamp order: a long request can arrive
+        // after newer ones. Scan once without allocating a matching-history array.
+        var closest: UUID?
+        var closestDistance = timeWindow
+        for transaction in transactions {
+            let distance = abs(transaction.timestamp.timeIntervalSince(logEntry.timestamp))
+            guard distance < closestDistance else {
+                continue
             }
-        return matchingTransaction?.id
+            closest = transaction.id
+            closestDistance = distance
+            if distance == 0 {
+                break
+            }
+        }
+        return closest
     }
 
     // MARK: Private

@@ -59,7 +59,7 @@ struct CountFormatterTests {
         // `String(localized:)` key extracts it as `%lld`, which prints Rockxy's own default port
         // as "9,797" — the MCP settings row and the upstream-proxy result both did that.
         var offenders: [String] = []
-        for (path, source) in try Self.projectSources(roots: ["Views", "Models", "ViewModels", "Core"]) {
+        for (path, source) in try Self.projectSources(roots: Self.portScannedRoots) {
             for (number, line) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let text = String(line)
                 guard text.contains("localized:") else {
@@ -94,9 +94,24 @@ struct CountFormatterTests {
         "Rockxy/Views/Inspector/PreviewTabContentView.swift",
     ]
 
-    /// Directories whose strings reach the screen. `Rockxy/Core` is excluded on purpose: a
+    /// Directories whose strings reach a person. `Rockxy/Core` is excluded on purpose: a
     /// `Content-Length` header value is a wire quantity that must never carry a separator.
-    private static let scannedRoots = ["Views", "Models/UI", "ViewModels"]
+    /// `Shared/`, `RockxyHelperTool/` and `RockxyMCP/` are separate targets that cannot see
+    /// `CountFormatter`, but their messages travel to the app's UI as error text and to AI clients
+    /// as tool output, and scanning only sub-folders of `Rockxy/` let a bare count built there pass
+    /// while the identical one in the app was caught. They hold no offender today, so a new one
+    /// has to be reworded (unit before the number) or justified in `rawCountOwners`.
+    private static let scannedRoots = [
+        "Rockxy/Views", "Rockxy/Models/UI", "Rockxy/ViewModels",
+        "Shared", "RockxyHelperTool", "RockxyMCP",
+    ]
+
+    /// The port check also covers `Rockxy/Core` and all of `Rockxy/Models`: any `String(localized:)`
+    /// key is grouped wherever it is built.
+    private static let portScannedRoots = [
+        "Rockxy/Views", "Rockxy/Models", "Rockxy/ViewModels", "Rockxy/Core",
+        "Shared", "RockxyHelperTool", "RockxyMCP",
+    ]
 
     private static func looksLikeACount(_ expression: String) -> Bool {
         // `String(text.dropFirst(prefix.count))` converts a Substring; the count is an index, not
@@ -160,21 +175,15 @@ struct CountFormatterTests {
 
     private static func projectSources(
         roots: [String] = scannedRoots
-    ) throws
-        -> [(path: String, source: String)]
+    )
+        throws -> [(path: String, source: String)]
     {
-        var root = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath()
-        while root.lastPathComponent != "RockxyTests", root.path != "/" {
-            root.deleteLastPathComponent()
-        }
-        guard root.lastPathComponent == "RockxyTests" else {
-            throw ResolveError.rootNotFound(filePath: #filePath)
-        }
-        root.deleteLastPathComponent()
+        let root = try resolveProjectRoot()
         let prefix = root.path + "/"
         var sources: [(path: String, source: String)] = []
         for scanned in roots {
-            let directory = root.appendingPathComponent("Rockxy").appendingPathComponent(scanned)
+            let directory = root.appendingPathComponent(scanned)
+            var contributed = 0
             let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)
             while let url = enumerator?.nextObject() as? URL {
                 guard url.pathExtension == "swift" else {
@@ -183,8 +192,23 @@ struct CountFormatterTests {
                 let resolved = url.resolvingSymlinksInPath().path
                 let path = resolved.hasPrefix(prefix) ? String(resolved.dropFirst(prefix.count)) : resolved
                 try sources.append((path, String(contentsOf: url, encoding: .utf8)))
+                contributed += 1
             }
+            // A directory that is renamed or removed would silently shrink the scan.
+            #expect(contributed > 0, "Scanned directory contributes no Swift sources: \(scanned)")
         }
         return sources
+    }
+
+    private static func resolveProjectRoot() throws -> URL {
+        var url = URL(fileURLWithPath: #filePath).resolvingSymlinksInPath()
+        while url.lastPathComponent != "RockxyTests", url.path != "/" {
+            url.deleteLastPathComponent()
+        }
+        guard url.lastPathComponent == "RockxyTests" else {
+            throw ResolveError.rootNotFound(filePath: #filePath)
+        }
+        url.deleteLastPathComponent()
+        return url
     }
 }

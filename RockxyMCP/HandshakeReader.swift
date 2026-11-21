@@ -24,6 +24,27 @@ enum HandshakeReader {
         }
     }
 
+    static var applicationSupportDirectory: URL {
+        if let override = ProcessInfo.processInfo.environment["ROCKXY_TEST_APP_SUPPORT_DIRECTORY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !override.isEmpty
+        {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+
+        if isRunningTests {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("rockxy-tests-\(testRunToken)", isDirectory: true)
+            return root.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+        }
+
+        let root = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        return root.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+    }
+
     static func readHandshake() throws -> Handshake {
         let filePath = handshakePath
 
@@ -91,27 +112,6 @@ enum HandshakeReader {
             .appendingPathComponent("mcp-handshake.json")
     }
 
-    static var applicationSupportDirectory: URL {
-        if let override = ProcessInfo.processInfo.environment["ROCKXY_TEST_APP_SUPPORT_DIRECTORY"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !override.isEmpty
-        {
-            return URL(fileURLWithPath: override, isDirectory: true)
-        }
-
-        if isRunningTests {
-            let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("rockxy-tests-\(testRunToken)", isDirectory: true)
-            return root.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
-        }
-
-        let root = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
-        return root.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
-    }
-
     private static var hostApplicationInfoDictionary: [String: Any]? {
         guard let executablePath = Bundle.main.executablePath else {
             return nil
@@ -135,9 +135,17 @@ enum HandshakeReader {
         return plist
     }
 
+    /// Whether this process is a test host, decided only by a loaded test framework.
+    ///
+    /// The environment is deliberately not consulted. Any process running as the user can plant
+    /// `XCTestConfigurationFilePath` for every future launch with `launchctl setenv`, and it
+    /// survives logout, so trusting it let a spoofed environment send the shipped tool's
+    /// Application Support directory to a temporary one -- after which it never finds the app's
+    /// handshake file. `HelperRegistrationGuard` records the same reasoning for the helper.
+    /// A test that needs the directory redirected sets `ROCKXY_TEST_APP_SUPPORT_DIRECTORY`,
+    /// which `applicationSupportDirectory` honours ahead of this check.
     private static var isRunningTests: Bool {
-        !(ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] ?? "").isEmpty
-            || NSClassFromString("XCTestCase") != nil
+        NSClassFromString("XCTestCase") != nil
             || NSClassFromString("Testing.Test") != nil
     }
 

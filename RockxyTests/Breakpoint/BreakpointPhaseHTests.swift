@@ -3,10 +3,14 @@ import Foundation
 @testable import Rockxy
 import Testing
 
+// MARK: - BreakpointPhaseHTests
+
 @Suite(.serialized)
 @MainActor
 struct BreakpointPhaseHTests {
-    // BP_H1
+    // MARK: Internal
+
+    /// BP_H1
     @Test("httpsViaHttpbinWithSslProxying")
     func httpsViaHttpbinWithSslProxying() async {
         let engine = RuleEngine()
@@ -19,7 +23,7 @@ struct BreakpointPhaseHTests {
         #expect(match != nil)
     }
 
-    // BP_H2
+    /// BP_H2
     @Test("networkRetryOnceOnDnsFailure")
     func networkRetryOnceOnDnsFailure() async throws {
         let url = try #require(URL(string: "https://retry.rockxy.test/get"))
@@ -36,7 +40,7 @@ struct BreakpointPhaseHTests {
         #expect(await loader.requestCount == 2)
     }
 
-    // BP_H3
+    /// BP_H3
     @Test("timeoutErrorMessageIsActionable")
     func timeoutErrorMessageIsActionable() {
         let error = BreakpointHarnessError.timeout(
@@ -46,7 +50,7 @@ struct BreakpointPhaseHTests {
         #expect(error.description.contains("Slow Response"))
     }
 
-    // BP_H4
+    /// BP_H4
     @Test("noTestLeaksProxyPort")
     func noTestLeaksProxyPort() async throws {
         let harness = try await BreakpointTestHarness.start()
@@ -55,17 +59,17 @@ struct BreakpointPhaseHTests {
         #expect(canBind(port: port))
     }
 
-    // BP_H5
+    /// BP_H5
     @Test("noTestLeaksUserDefaults")
     func noTestLeaksUserDefaults() throws {
-        let suiteName = "com.amunx.rockxy.tests.bp.h5.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "com.amunx.rockxy.tests.bp.h5.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.set(true, forKey: "breakpointToolEnabled")
         defaults.removePersistentDomain(forName: suiteName)
         #expect(defaults.object(forKey: "breakpointToolEnabled") == nil)
     }
 
-    // BP_H6
+    /// BP_H6
     @Test("parallelTestRunStable")
     func parallelTestRunStable() {
         let firstReference = RuleTestLock.shared
@@ -73,14 +77,14 @@ struct BreakpointPhaseHTests {
         #expect(firstReference === secondReference)
     }
 
-    // BP_H7
+    /// BP_H7
     @Test("randomOrderRunStable")
     func randomOrderRunStable() {
         let rule = ProxyRule.breakpointTest(matchingRule: "httpbin.org/get")
         #expect(rule.id != UUID())
     }
 
-    // BP_H8
+    /// BP_H8
     @Test("lowMemoryDoesNotDropQueue")
     func lowMemoryDoesNotDropQueue() async throws {
         let manager = BreakpointManager()
@@ -95,7 +99,7 @@ struct BreakpointPhaseHTests {
         _ = pressureBuffer
     }
 
-    // BP_H9
+    /// BP_H9
     @Test("reproductionBugIntegration")
     func reproductionBugIntegration() async {
         let engine = RuleEngine()
@@ -107,6 +111,8 @@ struct BreakpointPhaseHTests {
         )
         #expect(match != nil)
     }
+
+    // MARK: Private
 
     private func canBind(port: Int) -> Bool {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
@@ -129,6 +135,8 @@ struct BreakpointPhaseHTests {
         }
     }
 }
+
+// MARK: - DNSFailureOnceLoader
 
 private actor DNSFailureOnceLoader {
     private(set) var requestCount = 0

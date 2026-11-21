@@ -12,12 +12,18 @@ enum ProxyLoopGuard {
     /// `true` when `host:port` resolves to the listener that accepted the connection.
     /// `proxyHost` is the local address the client connected to; `localAddresses` are the
     /// machine's other interface addresses (a device on the LAN can name the Mac by IP).
+    ///
+    /// `localAddresses` has no default on purpose. Swift evaluates a default argument at the
+    /// call site, so a `RootCADownloadServer.lanIPv4Addresses()` default ran a `getifaddrs`
+    /// walk and a locale-aware sort on the event loop for every request, before the
+    /// `port == proxyPort` exit below could rule the request out. Callers resolve the
+    /// addresses once per connection instead.
     nonisolated static func targetsOwnListener(
         host: String,
         port: Int,
         proxyPort: Int,
         proxyHost: String?,
-        localAddresses: [String] = RootCADownloadServer.lanIPv4Addresses()
+        localAddresses: [String]
     )
         -> Bool
     {

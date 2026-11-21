@@ -361,7 +361,7 @@ struct NativeBottomInspectorSplitViewTests {
     }
 
     private func uniqueAutosaveName() -> String {
-        "NativeBottomInspectorSplitViewTests-\(UUID().uuidString)"
+        AppKitAutosaveTestKeys.uniqueSplitViewAutosaveName(for: .bottomInspectorSplitView)
     }
 
     private func expectNonNegativeArrangedGeometry(

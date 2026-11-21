@@ -15,6 +15,17 @@ enum UpstreamTrustPolicy {
     static let userDefaultsKey = RockxyIdentity.current.defaultsKey("acceptUntrustedUpstreamCertificates")
 
     /// `true` when the user chose to accept upstream certificates that fail validation.
+    ///
+    /// Read live, deliberately, unlike the cached snapshots `NoCacheHeaderMutator` and
+    /// `HTTP2ProxyOptions` keep. Those cost a `UserDefaults` lock acquisition on an event
+    /// loop too, and the same `didChangeNotification` refresh would work here — but the
+    /// notification orders the flip against later reads only, so a cached `true` can outlive
+    /// the moment the user turns verification back on, and the one connection that catches
+    /// that window is decrypted without checking the origin's certificate. That is the guard
+    /// the default exists to provide (`security.md`: a forged origin must not hide behind the
+    /// proxy), and it is not recoverable on the next request the way a stale cache-control
+    /// header or ALPN offer is. This is read once per intercepted connection, not per
+    /// request, so the contention it avoids is not worth that window.
     nonisolated static var acceptsUntrustedCertificates: Bool {
         UserDefaults.standard.bool(forKey: userDefaultsKey)
     }

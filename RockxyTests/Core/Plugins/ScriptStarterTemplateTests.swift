@@ -7,6 +7,10 @@ import Testing
 // Every starter template must be valid as shipped and do what its title says when the real
 // runtime executes it.
 
+/// Serialized because `runawayScriptTimesOutInsteadOfHanging` evaluates a deliberately
+/// long-running script to prove the validator's watchdog fires, and the other tests here
+/// also run scripts. In parallel they compete for cores with no benefit.
+@Suite(.serialized)
 struct ScriptStarterTemplateTests {
     // MARK: Internal
 
@@ -18,15 +22,48 @@ struct ScriptStarterTemplateTests {
     }
 
     @Test("Every starter template passes validation with its own behavior", arguments: ScriptStarterTemplate.allCases)
-    func templatesValidate(template: ScriptStarterTemplate) {
+    func templatesValidate(template: ScriptStarterTemplate) async {
         let behavior = template.behavior
-        let result = ScriptSourceValidator.validate(
+        let result = await ScriptSourceValidator.validate(
             source: template.source,
             runOnRequest: behavior.runOnRequest,
             runOnResponse: behavior.runOnResponse,
             runAsMock: behavior.runAsMock
         )
         #expect(result == .valid)
+    }
+
+    @Test("A script that never terminates fails validation instead of hanging the editor")
+    func runawayScriptTimesOutInsteadOfHanging() async {
+        let startedAt = ContinuousClock.now
+        // The loop must be at TOP LEVEL. Validation evaluates the source and then checks
+        // which hooks exist; it never calls a hook. A non-terminating loop inside
+        // `onRequest` is therefore never run and validates correctly -- rejecting that
+        // would reject every legitimate script containing a loop. What hangs the editor is
+        // top-level work, which `evaluateScript` does run.
+        // Long rather than infinite. JavaScriptCore cannot interrupt a running evaluation,
+        // so a `while (true)` pins a core for the rest of the test process -- and with
+        // Swift Testing running suites in parallel, the spinners in this file and in
+        // `ScriptRuntimeTests` starved the cooperative pool and stalled the run on
+        // 2026-11-03. A bounded loop proves the same thing, because the assertion is that
+        // the 5 s watchdog fires while the evaluation is still going: 3e9 is around 12 s
+        // on this machine, and a loaded machine only makes it longer, which is the safe
+        // direction. The thread then exits and gives the core back.
+        let result = await ScriptSourceValidator.validate(
+            source: "for (let i = 0; i < 3e9; i++) {}\nfunction onRequest(request) { return request; }",
+            runOnRequest: true,
+            runOnResponse: false,
+            runAsMock: false
+        )
+        let elapsed = startedAt.duration(to: .now)
+
+        guard case let .invalid(reason) = result else {
+            Issue.record("A non-terminating script must not validate.")
+            return
+        }
+        #expect(reason.contains("did not finish"))
+        // The bound is what matters: this used to never return at all.
+        #expect(elapsed < .seconds(ScriptSourceValidator.timeout + 10))
     }
 
     @Test("Mock templates run as mock; the others forward requests")

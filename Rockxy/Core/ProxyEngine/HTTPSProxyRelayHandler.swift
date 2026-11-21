@@ -130,6 +130,12 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         // Client disconnected while a request breakpoint may still be paused: cancel
         // the waiting Task so the queue drains and no upstream work is initiated.
         cancelPendingBreakpoint()
+        // Same point for the rule/script hook in flight. `channelInactive` and not
+        // `handlerRemoved`: `ProxyPipeline.configureClientWebSocketPipeline` removes this
+        // handler on a WebSocket upgrade, which is not a disconnect, and cancelling a live
+        // hook is how a Block rule would quietly become a pass-through.
+        hookTask.cancel()
+        notifyClientDisconnected()
         context.fireChannelInactive()
     }
 
@@ -137,260 +143,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         cancelPendingBreakpoint()
     }
 
-    // MARK: Private
-
-    private let host: String
-    /// Where the origin connection goes; differs from `host` only for emulator loopback aliases.
-    private let connectHost: String
-    private let port: Int
-    /// `https` for a decrypted TLS tunnel, `http` when the CONNECT tunnel carried plain HTTP
-    /// (a `ws://` upgrade or an http:// request sent through CONNECT).
-    private let scheme: String
-    private let ruleEngine: RuleEngine
-    private let scriptPluginManager: ScriptPluginManager?
-    private let connectionLimiter: ConnectionLimiter
-    private let customCertificateManager: CustomCertificateManager
-    private let upstreamProxySnapshotProvider: @Sendable () -> UpstreamProxyResolvedConfiguration?
-    private let upstreamTrustProvider: @Sendable () -> Bool
-    private let captureContextProvider: @Sendable () -> TrafficCaptureContext?
-    private let clientSourcePort: UInt16?
-    private let clientApplicationIdentity: ClientApplicationIdentity?
-    private let onTransactionComplete: @Sendable (HTTPTransaction) -> Void
-    private let onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (
-        BreakpointDecision,
-        BreakpointRequestData
-    ))?
-    private let breakpointBridgeTracker: BreakpointBridgeTracker?
-
-    private var pendingDisablesResponseCaching = false
-    private var pendingBreakpointPhase: BreakpointRulePhase?
-    /// Response-phase operations of the Modify Headers rules matched by the current request.
-    private var pendingResponseHeaderOperations: [HeaderOperation]?
-    private var pendingBreakpointRuleName: String?
-    /// The unstructured Task bridging an in-flight request breakpoint to the
-    /// @MainActor queue. Retained so a client disconnect / proxy stop can cancel it
-    /// and drain the paused item instead of leaking the row and its continuation.
-    private var pendingBreakpointTask: Task<Void, Never>?
-
-    private var requestHead: HTTPRequestHead?
-    private var requestBody: ByteBuffer?
-    private var requestStartTime: DispatchTime?
-    private var requestCaptureContext: TrafficCaptureContext?
-    private var requestBodyLimitState = RequestBodyLimitState()
-
-    /// Builds an `HTTPResponseData` from a resolved Map Local payload, deriving the standard
-    /// reason phrase when the payload did not carry one. Shared with the single-file and
-    /// directory serving paths so HTTP and HTTPS stay structurally identical.
-    nonisolated private static func mapLocalResponse(
-        from payload: MapLocalResponseResolver.Payload
-    )
-        -> HTTPResponseData
-    {
-        let message = payload.statusMessage ?? HTTPResponseStatus(statusCode: payload.statusCode).reasonPhrase
-        return HTTPResponseData(
-            statusCode: payload.statusCode,
-            statusMessage: message,
-            headers: MapLocalMarkerSetting.markedHeaders(payload.headers),
-            body: payload.body
-        )
-    }
-
-    nonisolated private func makeTransactionCallback(
-        for matchedRule: ProxyRule?
-    )
-        -> @Sendable (HTTPTransaction) -> Void
-    {
-        ProxyHandlerShared.makeTransactionCallback(
-            for: matchedRule,
-            downstream: onTransactionComplete
-        )
-    }
-
-    nonisolated private func forwardHTTPSRequest(
-        context: ChannelHandlerContext,
-        head: HTTPRequestHead
-    ) {
-        pendingBreakpointPhase = nil
-        pendingBreakpointRuleName = nil
-        pendingResponseHeaderOperations = nil
-        var requestData = buildRequestData(from: head)
-
-        var head = head
-        // Decided once per request so the relayed response is marked uncacheable exactly
-        // when its request was made fresh; consumed by `connectToUpstream`.
-        pendingDisablesResponseCaching = NoCacheHeaderMutator.isEnabled
-        if pendingDisablesResponseCaching {
-            requestData.headers = NoCacheHeaderMutator.apply(to: requestData.headers)
-            head.headers = HTTPHeaders(requestData.headers.map { ($0.name, $0.value) })
-        }
-
-        let startTime = requestStartTime ?? .now()
-        let graphQLInfo = GraphQLDetector.detect(request: requestData)
-        let callback = onTransactionComplete
-
-        let eventLoop = context.eventLoop
-        let ruleEngine = self.ruleEngine
-        let application = self.clientApplicationIdentity
-
-        eventLoop.makeFutureWithTask {
-            await ProxyHandlerShared.evaluateRules(
-                ruleEngine,
-                request: requestData,
-                graphQLOperationName: graphQLInfo?.operationName,
-                clientApplication: { application }
-            )
-        }.whenComplete { [weak self] result in
-            guard let self else {
-                return
-            }
-            let evaluation = try? result.get()
-            let breakpointRule = evaluation?.breakpoint
-            let matchedRule = evaluation?.matched
-            let headerRules = evaluation?.headerRules ?? []
-            let ruleForTransaction = ProxyHandlerShared.transactionRule(
-                breakpointRule: breakpointRule,
-                matchedRule: matchedRule,
-                headerRules: headerRules
-            )
-            let matchedRuleCallback = self.makeTransactionCallback(for: ruleForTransaction)
-
-            self.pendingBreakpointRuleName = breakpointRule?.name
-            if let responsePhase = breakpointRule?.action.responseBreakpointPhase {
-                self.pendingBreakpointPhase = responsePhase
-            }
-
-            // Modify Headers rules layer on top of whatever happens next: the request is
-            // rewritten here and the response operations ride along to every response path.
-            let headerOperations = ProxyHandlerShared.headerOperations(of: headerRules)
-            let rewritten = ProxyHandlerShared.applyRequestHeaderOperations(
-                headerOperations.request,
-                head: head,
-                requestData: requestData
-            )
-            self.pendingResponseHeaderOperations = headerOperations.response.isEmpty
-                ? nil
-                : headerOperations.response
-            let forwardHead = rewritten.head
-            let forwardData = rewritten.requestData
-
-            if let breakpointRule,
-               case let .breakpoint(phase) = breakpointRule.action,
-               phase == .request || phase == .both
-            {
-                self.handleRuleAction(
-                    breakpointRule.action,
-                    context: context,
-                    head: forwardHead,
-                    requestData: forwardData,
-                    graphQLInfo: graphQLInfo,
-                    startTime: startTime,
-                    callback: self.makeTransactionCallback(for: breakpointRule),
-                    matchContext: MapLocalMatchContext(matchCondition: breakpointRule.matchCondition)
-                )
-                return
-            }
-
-            if let matchedRule {
-                self.handleRuleAction(
-                    matchedRule.action,
-                    context: context,
-                    head: forwardHead,
-                    requestData: forwardData,
-                    graphQLInfo: graphQLInfo,
-                    startTime: startTime,
-                    callback: matchedRuleCallback,
-                    matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
-                )
-                return
-            }
-
-            // Only header rules matched: keep their attribution on the transaction.
-            let forwardCallback = headerRules.isEmpty ? callback : matchedRuleCallback
-            if let scriptPluginManager = self.scriptPluginManager {
-                let eventLoop = context.eventLoop
-                eventLoop.makeFutureWithTask {
-                    await scriptPluginManager.runRequestHook(on: forwardData)
-                }.whenSuccess { [weak self] outcome in
-                    guard let self else {
-                        return
-                    }
-                    switch outcome {
-                    case let .forward(modifiedRequest):
-                        self.connectToUpstream(
-                            context: context,
-                            head: forwardHead,
-                            requestData: modifiedRequest,
-                            graphQLInfo: graphQLInfo,
-                            startTime: startTime,
-                            callback: forwardCallback
-                        )
-                    case .blockLocally:
-                        self.sendBlockResponse(
-                            context: context,
-                            status: 403,
-                            requestData: forwardData,
-                            callback: forwardCallback
-                        )
-                    case let .mock(mockResponse):
-                        self.sendMappedResponse(
-                            context: context,
-                            responseData: mockResponse,
-                            requestData: forwardData,
-                            callback: forwardCallback
-                        )
-                    case .mockFailure:
-                        self.sendBlockResponse(
-                            context: context,
-                            status: 502,
-                            requestData: forwardData,
-                            callback: forwardCallback
-                        )
-                    }
-                }
-            } else {
-                self.connectToUpstream(
-                    context: context,
-                    head: forwardHead,
-                    requestData: forwardData,
-                    graphQLInfo: graphQLInfo,
-                    startTime: startTime,
-                    callback: forwardCallback
-                )
-            }
-        }
-    }
-
-    nonisolated private func buildRequestData(from head: HTTPRequestHead) -> HTTPRequestData {
-        let headers = head.headers.map { HTTPHeader(name: $0.name, value: $0.value) }
-        let body: Data? = if let buffer = requestBody, buffer.readableBytes > 0,
-                             let bytes = buffer.getBytes(
-                                 at: buffer.readerIndex,
-                                 length: buffer.readableBytes
-                             )
-        {
-            Data(bytes)
-        } else {
-            nil
-        }
-        // swiftlint:disable:next force_unwrapping
-        let fallbackURL = URL(string: "\(scheme)://localhost/")!
-        let authority = ProxyHandlerShared.authority(host: host, port: port, scheme: scheme)
-        let requestTarget = head.uri.hasPrefix("/") ? head.uri : "/\(head.uri)"
-        let parsedURL = URL(string: "\(scheme)://\(authority)\(requestTarget)")
-            ?? URL(string: "\(scheme)://\(authority)/")
-            ?? fallbackURL
-        return HTTPRequestData(
-            method: head.method.rawValue,
-            url: parsedURL,
-            httpVersion: "\(head.version.major).\(head.version.minor)",
-            headers: headers,
-            body: body,
-            contentType: ContentTypeDetector.detect(headers: headers, body: body),
-            captureContext: requestCaptureContext
-        )
-    }
-
-    nonisolated private func connectToUpstream(
+    nonisolated func connectToUpstream(
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
@@ -502,6 +255,304 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         }
     }
 
+    nonisolated func sendMappedResponse(
+        context: ChannelHandlerContext,
+        responseData: HTTPResponseData,
+        requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
+    ) {
+        let responseData = ProxyHandlerShared.applyResponseHeaderOperations(
+            pendingResponseHeaderOperations,
+            to: responseData
+        )
+        let status = HTTPResponseStatus(statusCode: responseData.statusCode)
+        var responseHead = HTTPResponseHead(version: .http1_1, status: status)
+        for header in responseData.headers {
+            responseHead.headers.add(name: header.name, value: header.value)
+        }
+        context.write(NIOAny(HTTPServerResponsePart.head(responseHead)), promise: nil)
+        if let body = responseData.body {
+            var buffer = context.channel.allocator.buffer(capacity: body.count)
+            buffer.writeBytes(body)
+            context.write(NIOAny(HTTPServerResponsePart.body(.byteBuffer(buffer))), promise: nil)
+        }
+        context.writeAndFlush(NIOAny(HTTPServerResponsePart.end(nil)), promise: nil)
+
+        let transaction = HTTPTransaction(
+            request: requestData,
+            response: responseData,
+            state: .completed,
+            x402Info: X402Detector.detect(request: requestData, response: responseData)
+        )
+        transaction.measuredDuration = requestElapsedDuration()
+        transaction.sourcePort = clientSourcePort
+        callback(transaction)
+    }
+
+    // MARK: Private
+
+    private let host: String
+    /// Where the origin connection goes; differs from `host` only for emulator loopback aliases.
+    private let connectHost: String
+    private let port: Int
+    /// `https` for a decrypted TLS tunnel, `http` when the CONNECT tunnel carried plain HTTP
+    /// (a `ws://` upgrade or an http:// request sent through CONNECT).
+    private let scheme: String
+    private let ruleEngine: RuleEngine
+    private let scriptPluginManager: ScriptPluginManager?
+    private let connectionLimiter: ConnectionLimiter
+    private let customCertificateManager: CustomCertificateManager
+    private let upstreamProxySnapshotProvider: @Sendable () -> UpstreamProxyResolvedConfiguration?
+    private let upstreamTrustProvider: @Sendable () -> Bool
+    private let captureContextProvider: @Sendable () -> TrafficCaptureContext?
+    private let clientSourcePort: UInt16?
+    private let clientApplicationIdentity: ClientApplicationIdentity?
+    private let onTransactionComplete: @Sendable (HTTPTransaction) -> Void
+    private let onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (
+        BreakpointDecision,
+        BreakpointRequestData
+    ))?
+    private let breakpointBridgeTracker: BreakpointBridgeTracker?
+
+    private var pendingDisablesResponseCaching = false
+    private var pendingBreakpointPhase: BreakpointRulePhase?
+    /// Response-phase operations of the Modify Headers rules matched by the current request.
+    private var pendingResponseHeaderOperations: [HeaderOperation]?
+    private var pendingBreakpointRuleName: String?
+    /// The unstructured Task bridging an in-flight request breakpoint to the
+    /// @MainActor queue. Retained so a client disconnect / proxy stop can cancel it
+    /// and drain the paused item instead of leaking the row and its continuation.
+    private var pendingBreakpointTask: Task<Void, Never>?
+
+    /// The rule-evaluation / request-script hook this decrypted connection has in flight. One
+    /// slot is enough because those are sequential phases of a single request.
+    private let hookTask = ProxyHookTaskSlot()
+
+    /// The response handler of the request currently in flight upstream, so the client's
+    /// disconnect can tear it down.
+    ///
+    /// Weak on purpose: the upstream pipeline owns the handler, and a strong reference here
+    /// would outlive the request and pin its captured bodies for the whole keep-alive
+    /// connection — the leak this reference exists to replace. Only ever touched on this
+    /// channel's event loop, which is also the loop the upstream channel is bootstrapped on.
+    private weak var currentUpstreamResponseHandler: UpstreamResponseHandler?
+
+    private var requestHead: HTTPRequestHead?
+    private var requestBody: ByteBuffer?
+    private var requestStartTime: DispatchTime?
+    private var requestCaptureContext: TrafficCaptureContext?
+    private var requestBodyLimitState = RequestBodyLimitState()
+
+    nonisolated private func makeTransactionCallback(
+        for matchedRule: ProxyRule?
+    )
+        -> @Sendable (HTTPTransaction) -> Void
+    {
+        ProxyHandlerShared.makeTransactionCallback(
+            for: matchedRule,
+            downstream: onTransactionComplete
+        )
+    }
+
+    nonisolated private func forwardHTTPSRequest(
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead
+    ) {
+        pendingBreakpointPhase = nil
+        pendingBreakpointRuleName = nil
+        pendingResponseHeaderOperations = nil
+        var requestData = buildRequestData(from: head)
+
+        var head = head
+        // Decided once per request so the relayed response is marked uncacheable exactly
+        // when its request was made fresh; consumed by `connectToUpstream`.
+        pendingDisablesResponseCaching = NoCacheHeaderMutator.isEnabled
+        if pendingDisablesResponseCaching {
+            requestData.headers = NoCacheHeaderMutator.apply(to: requestData.headers)
+            head.headers = HTTPHeaders(requestData.headers.map { ($0.name, $0.value) })
+        }
+
+        let startTime = requestStartTime ?? .now()
+        let graphQLInfo = GraphQLDetector.detect(request: requestData)
+        let callback = onTransactionComplete
+
+        let eventLoop = context.eventLoop
+        let ruleEngine = self.ruleEngine
+        let application = self.clientApplicationIdentity
+
+        // Retained and liveness-gated through `hookTask` instead of `makeFutureWithTask`, which
+        // throws its Task handle away. The gate is the part that matters here: an evaluation
+        // that resolved after the decrypted client channel had gone still ran this
+        // continuation, and `connectToUpstream` below acquires a `ConnectionLimiter` slot and
+        // opens a real origin connection for a client that is no longer there. See
+        // `ProxyHookTaskSlot`.
+        hookTask.run(
+            on: eventLoop,
+            hook: {
+                await ProxyHandlerShared.evaluateRules(
+                    ruleEngine,
+                    request: requestData,
+                    graphQLOperationName: graphQLInfo?.operationName,
+                    clientApplication: { application }
+                )
+            },
+            isLive: { context.channel.isActive }
+        ) { [weak self] evaluation in
+            guard let self else {
+                return
+            }
+            let breakpointRule = evaluation.breakpoint
+            let matchedRule = evaluation.matched
+            let headerRules = evaluation.headerRules
+            let ruleForTransaction = ProxyHandlerShared.transactionRule(
+                breakpointRule: breakpointRule,
+                matchedRule: matchedRule,
+                headerRules: headerRules
+            )
+            let matchedRuleCallback = self.makeTransactionCallback(for: ruleForTransaction)
+
+            self.pendingBreakpointRuleName = breakpointRule?.name
+            if let responsePhase = breakpointRule?.action.responseBreakpointPhase {
+                self.pendingBreakpointPhase = responsePhase
+            }
+
+            // Modify Headers rules layer on top of whatever happens next: the request is
+            // rewritten here and the response operations ride along to every response path.
+            let headerOperations = ProxyHandlerShared.headerOperations(of: headerRules)
+            let rewritten = ProxyHandlerShared.applyRequestHeaderOperations(
+                headerOperations.request,
+                head: head,
+                requestData: requestData
+            )
+            self.pendingResponseHeaderOperations = headerOperations.response.isEmpty
+                ? nil
+                : headerOperations.response
+            let forwardHead = rewritten.head
+            let forwardData = rewritten.requestData
+
+            if let breakpointRule,
+               case let .breakpoint(phase) = breakpointRule.action,
+               phase == .request || phase == .both
+            {
+                self.handleRuleAction(
+                    breakpointRule.action,
+                    context: context,
+                    head: forwardHead,
+                    requestData: forwardData,
+                    graphQLInfo: graphQLInfo,
+                    startTime: startTime,
+                    callback: self.makeTransactionCallback(for: breakpointRule),
+                    matchContext: MapLocalMatchContext(matchCondition: breakpointRule.matchCondition)
+                )
+                return
+            }
+
+            if let matchedRule {
+                self.handleRuleAction(
+                    matchedRule.action,
+                    context: context,
+                    head: forwardHead,
+                    requestData: forwardData,
+                    graphQLInfo: graphQLInfo,
+                    startTime: startTime,
+                    callback: matchedRuleCallback,
+                    matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
+                )
+                return
+            }
+
+            // Only header rules matched: keep their attribution on the transaction.
+            let forwardCallback = headerRules.isEmpty ? callback : matchedRuleCallback
+            if let scriptPluginManager = self.scriptPluginManager {
+                let eventLoop = context.eventLoop
+                // Reuses the slot the rule evaluation above has just finished with, so the two
+                // phases of one request never contend for it. Gated for the same reason — a
+                // script backlog resolving after Stop must not forward, block or mock into a
+                // channel that is already gone.
+                self.hookTask.run(
+                    on: eventLoop,
+                    hook: { await scriptPluginManager.runRequestHook(on: forwardData) },
+                    isLive: { context.channel.isActive }
+                ) { [weak self] outcome in
+                    guard let self else {
+                        return
+                    }
+                    switch outcome {
+                    case let .forward(modifiedRequest):
+                        self.connectToUpstream(
+                            context: context,
+                            head: forwardHead,
+                            requestData: modifiedRequest,
+                            graphQLInfo: graphQLInfo,
+                            startTime: startTime,
+                            callback: forwardCallback
+                        )
+                    case .blockLocally:
+                        self.sendBlockResponse(
+                            context: context,
+                            status: 403,
+                            requestData: forwardData,
+                            callback: forwardCallback
+                        )
+                    case let .mock(mockResponse):
+                        self.sendMappedResponse(
+                            context: context,
+                            responseData: mockResponse,
+                            requestData: forwardData,
+                            callback: forwardCallback
+                        )
+                    case .mockFailure:
+                        self.sendBlockResponse(
+                            context: context,
+                            status: 502,
+                            requestData: forwardData,
+                            callback: forwardCallback
+                        )
+                    }
+                }
+            } else {
+                self.connectToUpstream(
+                    context: context,
+                    head: forwardHead,
+                    requestData: forwardData,
+                    graphQLInfo: graphQLInfo,
+                    startTime: startTime,
+                    callback: forwardCallback
+                )
+            }
+        }
+    }
+
+    nonisolated private func buildRequestData(from head: HTTPRequestHead) -> HTTPRequestData {
+        let headers = head.headers.map { HTTPHeader(name: $0.name, value: $0.value) }
+        let body: Data? = if let buffer = requestBody, buffer.readableBytes > 0,
+                             let bytes = buffer.getBytes(
+                                 at: buffer.readerIndex,
+                                 length: buffer.readableBytes
+                             )
+        {
+            Data(bytes)
+        } else {
+            nil
+        }
+        // swiftlint:disable:next force_unwrapping
+        let fallbackURL = URL(string: "\(scheme)://localhost/")!
+        let authority = ProxyHandlerShared.authority(host: host, port: port, scheme: scheme)
+        let requestTarget = head.uri.hasPrefix("/") ? head.uri : "/\(head.uri)"
+        let parsedURL = URL(string: "\(scheme)://\(authority)\(requestTarget)")
+            ?? URL(string: "\(scheme)://\(authority)/")
+            ?? fallbackURL
+        return HTTPRequestData(
+            method: head.method.rawValue,
+            url: parsedURL,
+            httpVersion: "\(head.version.major).\(head.version.minor)",
+            headers: headers,
+            body: body,
+            contentType: ContentTypeDetector.detect(headers: headers, body: body),
+            captureContext: requestCaptureContext
+        )
+    }
+
     nonisolated private func handleUpstreamConnection(
         result: Result<Channel, Error>,
         context: ChannelHandlerContext,
@@ -552,6 +603,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
             )
             self.pendingBreakpointPhase = nil
             self.pendingBreakpointRuleName = nil
+            self.currentUpstreamResponseHandler = responseHandler
             clientChannel.pipeline.addHandler(responseHandler).whenComplete { result in
                 switch result {
                 case .success:
@@ -800,152 +852,6 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         callback(transaction)
     }
 
-    nonisolated private func handleMapLocal(
-        context: ChannelHandlerContext,
-        head: HTTPRequestHead,
-        filePath: String,
-        statusCode: Int,
-        responseHeaders: [HTTPHeader],
-        requestData: HTTPRequestData,
-        graphQLInfo: GraphQLInfo?,
-        startTime: DispatchTime,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void
-    ) {
-        guard let data = MapLocalFileValidator.loadFileData(at: filePath) else {
-            // Missing / unreadable / oversized target — serve the origin instead of a
-            // synthesized 404 so a broken mapping degrades to normal traffic.
-            httpsRelayLogger.info("Map local file unavailable, falling back to origin")
-            connectToUpstream(
-                context: context,
-                head: head,
-                requestData: requestData,
-                graphQLInfo: graphQLInfo,
-                startTime: startTime,
-                callback: callback
-            )
-            return
-        }
-
-        let outcome = MapLocalResponseResolver.resolve(
-            fileData: data,
-            actionStatusCode: statusCode,
-            configuredHeaders: responseHeaders,
-            inferredContentType: MimeTypeResolver.mimeType(for: filePath)
-        )
-        switch outcome {
-        case let .serve(payload):
-            sendMappedResponse(
-                context: context,
-                responseData: Self.mapLocalResponse(from: payload),
-                requestData: requestData,
-                callback: callback
-            )
-        case .fallbackToOrigin:
-            // Invalid status or a malformed HTTP-message-looking file — forward the origin.
-            httpsRelayLogger.info("Map local response invalid, falling back to origin")
-            connectToUpstream(
-                context: context,
-                head: head,
-                requestData: requestData,
-                graphQLInfo: graphQLInfo,
-                startTime: startTime,
-                callback: callback
-            )
-        }
-    }
-
-    nonisolated private func handleMapLocalDirectory(
-        context: ChannelHandlerContext,
-        head: HTTPRequestHead,
-        directoryPath: String,
-        statusCode: Int,
-        responseHeaders: [HTTPHeader],
-        requestData: HTTPRequestData,
-        graphQLInfo: GraphQLInfo?,
-        startTime: DispatchTime,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void,
-        matchContext: MapLocalMatchContext
-    ) {
-        let result = MapLocalDirectoryResolver.resolve(
-            requestURL: requestData.url.absoluteString,
-            matchContext: matchContext,
-            directoryPath: directoryPath
-        )
-        switch result {
-        case let .success(file):
-            let outcome = MapLocalResponseResolver.resolve(
-                fileData: file.data,
-                actionStatusCode: statusCode,
-                configuredHeaders: responseHeaders,
-                inferredContentType: file.mimeType
-            )
-            switch outcome {
-            case let .serve(payload):
-                sendMappedResponse(
-                    context: context,
-                    responseData: Self.mapLocalResponse(from: payload),
-                    requestData: requestData,
-                    callback: callback
-                )
-            case .fallbackToOrigin:
-                httpsRelayLogger.info("Map local directory response invalid, falling back to origin")
-                connectToUpstream(
-                    context: context,
-                    head: head,
-                    requestData: requestData,
-                    graphQLInfo: graphQLInfo,
-                    startTime: startTime,
-                    callback: callback
-                )
-            }
-        case .failure:
-            // Unresolved / invalid target — fall back to the origin request.
-            httpsRelayLogger.info("Map local directory unresolved, falling back to origin")
-            connectToUpstream(
-                context: context,
-                head: head,
-                requestData: requestData,
-                graphQLInfo: graphQLInfo,
-                startTime: startTime,
-                callback: callback
-            )
-        }
-    }
-
-    nonisolated private func sendMappedResponse(
-        context: ChannelHandlerContext,
-        responseData: HTTPResponseData,
-        requestData: HTTPRequestData,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void
-    ) {
-        let responseData = ProxyHandlerShared.applyResponseHeaderOperations(
-            pendingResponseHeaderOperations,
-            to: responseData
-        )
-        let status = HTTPResponseStatus(statusCode: responseData.statusCode)
-        var responseHead = HTTPResponseHead(version: .http1_1, status: status)
-        for header in responseData.headers {
-            responseHead.headers.add(name: header.name, value: header.value)
-        }
-        context.write(NIOAny(HTTPServerResponsePart.head(responseHead)), promise: nil)
-        if let body = responseData.body {
-            var buffer = context.channel.allocator.buffer(capacity: body.count)
-            buffer.writeBytes(body)
-            context.write(NIOAny(HTTPServerResponsePart.body(.byteBuffer(buffer))), promise: nil)
-        }
-        context.writeAndFlush(NIOAny(HTTPServerResponsePart.end(nil)), promise: nil)
-
-        let transaction = HTTPTransaction(
-            request: requestData,
-            response: responseData,
-            state: .completed,
-            x402Info: X402Detector.detect(request: requestData, response: responseData)
-        )
-        transaction.measuredDuration = requestElapsedDuration()
-        transaction.sourcePort = clientSourcePort
-        callback(transaction)
-    }
-
     nonisolated private func sendErrorResponse(
         context: ChannelHandlerContext,
         status: Int,
@@ -1072,6 +978,17 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 )
             }
         }
+    }
+
+    /// Tells the in-flight request's upstream handler that the client is gone.
+    ///
+    /// Driven from `channelInactive` rather than `handlerRemoved`: this handler is also removed
+    /// when the pipeline is reconfigured for a WebSocket upgrade, which is not a disconnect and
+    /// must not close the upgraded connection's origin channel.
+    nonisolated private func notifyClientDisconnected() {
+        let handler = currentUpstreamResponseHandler
+        currentUpstreamResponseHandler = nil
+        handler?.clientDisconnected()
     }
 
     nonisolated private func cancelPendingBreakpoint() {

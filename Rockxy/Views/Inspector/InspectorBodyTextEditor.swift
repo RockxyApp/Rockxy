@@ -862,6 +862,7 @@ struct InspectorRequestSnapshot: Sendable {
         httpVersion = request.httpVersion
         headers = request.headers.map(InspectorHeaderSnapshot.init(header:))
         body = request.body
+        isBodyIncomplete = request.isBodyIncomplete
     }
 
     // MARK: Internal
@@ -872,6 +873,7 @@ struct InspectorRequestSnapshot: Sendable {
     let httpVersion: String
     let headers: [InspectorHeaderSnapshot]
     let body: Data?
+    let isBodyIncomplete: Bool
 }
 
 // MARK: - InspectorResponseSnapshot
@@ -889,6 +891,7 @@ struct InspectorResponseSnapshot: Sendable {
             contentEncoding: response.headers.first { $0.name.lowercased() == "content-encoding" }?.value
         )
         contentType = response.contentType
+        isBodyIncomplete = response.isBodyIncomplete
     }
 
     // MARK: Internal
@@ -899,6 +902,7 @@ struct InspectorResponseSnapshot: Sendable {
     let body: Data?
     let displayBody: Data?
     let contentType: ContentType?
+    let isBodyIncomplete: Bool
 
     // MARK: Private
 
@@ -924,6 +928,54 @@ struct InspectorHeaderSnapshot: Sendable {
 
     let name: String
     let value: String
+}
+
+// MARK: - CapturedBodyStatusContainer
+
+struct CapturedBodyStatusContainer<Content: View>: View {
+    // MARK: Internal
+
+    let isBodyIncomplete: Bool
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if isBodyIncomplete {
+                Label(
+                    String(localized: "The captured body was omitted or truncated.", bundle: RockxyLocalization.bundle),
+                    systemImage: "scissors"
+                )
+                .font(.system(size: metrics.metadataFontSize))
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                Divider()
+            }
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: Private
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
+}
+
+// MARK: - CapturedBodyUnavailableView
+
+/// Missing captured bytes do not establish that the original message had no body.
+struct CapturedBodyUnavailableView: View {
+    var body: some View {
+        InspectorEmptyStateView(
+            String(localized: "Body Not Captured", bundle: RockxyLocalization.bundle),
+            systemImage: "scissors",
+            description: String(
+                localized: "The captured body was omitted or truncated.",
+                bundle: RockxyLocalization.bundle
+            )
+        )
+    }
 }
 
 // MARK: - InspectorPayloadFormatter

@@ -55,7 +55,7 @@ extension MainContentCoordinator {
               captureContext.sessionID == captureContext.projectID,
               projectStore.projects.contains(where: { $0.id == captureContext.projectID }),
               captureContext.generation
-                == captureGenerationByProjectID[captureContext.projectID, default: 0] else
+              == captureGenerationByProjectID[captureContext.projectID, default: 0] else
         {
             Self.logger.debug("Dropped log entry with stale or unknown Project ownership")
             return
@@ -76,12 +76,13 @@ extension MainContentCoordinator {
             mutableEntry.correlatedTransactionId = correlatedId
         }
 
+        // Do not log routine eviction here. OSLogSource can capture this process's logs;
+        // logging every eviction creates another captured entry and an idle feedback loop.
         if projectID == projectStore.activeProjectID {
             logEntries.append(mutableEntry)
             if logEntries.count > settings.maxLogBufferSize {
                 let excess = logEntries.count - settings.maxLogBufferSize
                 logEntries.removeFirst(excess)
-                Self.logger.debug("Evicted \(excess) oldest log entries")
             }
         } else {
             var projectLogs = logEntriesByProjectID[projectID] ?? []
@@ -89,7 +90,6 @@ extension MainContentCoordinator {
             if projectLogs.count > settings.maxLogBufferSize {
                 let excess = projectLogs.count - settings.maxLogBufferSize
                 projectLogs.removeFirst(excess)
-                Self.logger.debug("Evicted \(excess) oldest log entries")
             }
             logEntriesByProjectID[projectID] = projectLogs
         }

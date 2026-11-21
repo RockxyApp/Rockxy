@@ -16,7 +16,11 @@ struct WebSocketFrameData: Identifiable, Sendable {
         direction: FrameDirection,
         opcode: FrameOpcode,
         payload: Data,
-        isFinal: Bool = true
+        isFinal: Bool = true,
+        closeCode: Int? = nil,
+        closeReason: String? = nil,
+        closeOrigin: String? = nil,
+        isAbnormalTermination: Bool = false
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -24,6 +28,10 @@ struct WebSocketFrameData: Identifiable, Sendable {
         self.opcode = opcode
         self.payload = payload
         self.isFinal = isFinal
+        self.closeCode = closeCode
+        self.closeReason = closeReason
+        self.closeOrigin = closeOrigin
+        self.isAbnormalTermination = isAbnormalTermination
     }
 
     // MARK: Internal
@@ -34,6 +42,10 @@ struct WebSocketFrameData: Identifiable, Sendable {
     let opcode: FrameOpcode
     let payload: Data
     let isFinal: Bool
+    let closeCode: Int?
+    let closeReason: String?
+    let closeOrigin: String?
+    let isAbnormalTermination: Bool
 }
 
 // MARK: - FrameDirection

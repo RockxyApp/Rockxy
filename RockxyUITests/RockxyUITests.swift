@@ -17,17 +17,20 @@ final class RockxyUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() {
+    func testExample() throws {
         // UI tests must launch the application that they test.
-        let app = XCUIApplication()
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
     }
 
     @MainActor
-    func testQuickToolMenusOpenAcrossEntireField() {
-        let app = XCUIApplication()
+    func testQuickToolMenusOpenAcrossEntireField() throws {
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
         app.launch()
 
         let customizeButton = app.buttons["More"]
@@ -37,7 +40,7 @@ final class RockxyUITests: XCTestCase {
         let popover = app.popovers.firstMatch
         XCTAssertTrue(popover.waitForExistence(timeout: 2))
 
-        for slot in 1...4 {
+        for slot in 1 ... 4 {
             let field = popover.menuButtons
                 .matching(identifier: "footerQuickTools.slot\(slot)")
                 .firstMatch
@@ -60,8 +63,9 @@ final class RockxyUITests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsSidebarToggleStaysInLeadingTitlebar() {
-        let app = XCUIApplication()
+    func testSettingsSidebarToggleStaysInLeadingTitlebar() throws {
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
         app.launch()
         app.typeKey(",", modifierFlags: .command)
 
@@ -144,10 +148,36 @@ final class RockxyUITests: XCTestCase {
     }
 
     @MainActor
-    func testLaunchPerformance() {
+    func testTLSKeyLogLocationOmitsAccountPath() throws {
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
+        let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["ROCKXY_QA_BUNDLE_ID"])
+        let fixture = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop/fixture-tls-keys.log")
+        app.launchArguments += [
+            "-\(identifier).tlsKeyLogEnabled", "NO",
+            "-\(identifier).tlsKeyLogPath", fixture.path
+        ]
+        app.launch()
+        app.menuBars.menuBarItems["Tools"].click()
+        let item = app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "TLS Key Log")).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.click()
+        let location = app.staticTexts["tlsKeyLog.location"].firstMatch
+        XCTAssertTrue(location.waitForExistence(timeout: 5))
+        XCTAssertTrue(location.label.contains("fixture-tls-keys.log"))
+        XCTAssertFalse(location.label.contains("/Users/"))
+        XCTAssertFalse(location.label.contains(FileManager.default.homeDirectoryForCurrentUser.path))
+    }
+
+    @MainActor
+    func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
         measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
+            app.launch()
+            app.terminate()
         }
     }
 }

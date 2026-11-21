@@ -642,7 +642,9 @@ final class HelperConnection {
     }
 
     /// Query the current proxy status from the helper: (isOverridden, port).
-    func getProxyStatus() async throws -> (isOverridden: Bool, port: Int) {
+    /// `timeout` defaults to the general 10 s window used by routing checks. The Stop path passes
+    /// a shorter one: there, an unanswered probe means "not proven", and waiting it out is the cost.
+    func getProxyStatus(timeout: Duration = .seconds(10)) async throws -> (isOverridden: Bool, port: Int) {
         let proxy = try await getProxy()
         return try await withCheckedThrowingContinuation { continuation in
             let resumed = OSAllocatedUnfairLock(initialState: false)
@@ -666,7 +668,7 @@ final class HelperConnection {
                 // service. Several SystemConfiguration notifications can also make
                 // those reads contend briefly, so use the same bounded window as the
                 // proxy mutations instead of reporting a false routing loss.
-                try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
+                try? await Task.sleep(for: timeout)
                 let alreadyResumed = resumed.withLock { val -> Bool in
                     if val {
                         return true

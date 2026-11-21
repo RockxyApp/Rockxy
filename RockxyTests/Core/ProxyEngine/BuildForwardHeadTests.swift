@@ -36,7 +36,8 @@ struct BuildForwardHeadTests {
 
     @Test("Mocked responses are marked only when the setting is on")
     func mapLocalMarkerFollowsSetting() throws {
-        let defaults = try #require(UserDefaults(suiteName: "RockxyMapLocalMarkTests-\(UUID().uuidString)"))
+        let defaults =
+            try #require(UserDefaults(suiteName: IsolatedDefaultsSuite.uniqueName(prefix: "RockxyMapLocalMarkTests-")))
         let headers = [HTTPHeader(name: "Content-Type", value: "text/plain")]
         #expect(MapLocalMarkerSetting.markedHeaders(headers, defaults: defaults) == headers)
 

@@ -26,14 +26,30 @@ final class TrafficDomainSnapshot {
         appEntries.first { $0.name == name }?.domains ?? []
     }
 
-    func update(appNodes: [AppInfo], domainTree: [DomainNode]) {
+    /// Publishes the snapshot from an already-ordered domain list.
+    ///
+    /// The capture path uses this because `DomainGroupingIndex` maintains that order as
+    /// nodes appear and leave. Deriving it here instead meant flattening the whole tree,
+    /// deduplicating it, and re-collating every observed domain on each delivery batch --
+    /// over a collection sized by the distinct hosts seen in the session, which the
+    /// transaction cap does not bound, so evicting rows never made it cheaper.
+    func update(appNodes: [AppInfo], domains: [String]) {
         appEntries = Self.mergeNameOnlyEntries(appNodes).sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+        self.domains = domains
+    }
+
+    /// Derives the domain list from a published tree, for the one-shot paths (import,
+    /// Project activation, nearby transfer) that are not on the capture batch path.
+    func update(appNodes: [AppInfo], domainTree: [DomainNode]) {
         var seen = Set<String>()
-        domains = domainTree.flatMap(Self.flattenDomains)
-            .filter { seen.insert($0).inserted }
-            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        update(
+            appNodes: appNodes,
+            domains: domainTree.flatMap(Self.flattenDomains)
+                .filter { seen.insert($0).inserted }
+                .sorted { DomainGrouping.isOrderedBefore(domain: $0, $1) }
+        )
     }
 
     func reset() {

@@ -43,6 +43,20 @@ final class ProxyOperationGate: @unchecked Sendable {
 final class ProxyAsyncOperationGate: @unchecked Sendable {
     // MARK: Internal
 
+    /// Keep synchronous networksetup, file locks, and process waits off the caller's actor.
+    /// With NonisolatedNonsendingByDefault, an ordinary async call from the UI still runs
+    /// that work on MainActor. The detached task also lets critical restore finish if its
+    /// UI caller is cancelled; the same lifecycle gate continues to serialize all writes.
+    func withBackgroundOperation<T: Sendable>(
+        _ body: @escaping @Sendable () async throws -> T
+    )
+        async throws -> T
+    {
+        try await Task.detached(priority: .userInitiated) { [self] in
+            try await withOperation(body)
+        }.value
+    }
+
     func withOperation<T>(_ body: () async throws -> T) async rethrows -> T {
         await acquire()
         defer { release() }

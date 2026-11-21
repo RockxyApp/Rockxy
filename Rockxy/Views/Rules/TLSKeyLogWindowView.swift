@@ -38,6 +38,10 @@ final class TLSKeyLogSettings {
     private(set) var fileURL: URL
     private(set) var errorMessage: String?
 
+    var displayedFileLocation: String {
+        LocalFileLocationLabel.label(for: fileURL)
+    }
+
     func setEnabled(_ enabled: Bool) {
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
@@ -65,7 +69,7 @@ final class TLSKeyLogSettings {
         } catch {
             try? writer.setDestination(nil)
             errorMessage = String(
-                localized: "Rockxy can't write to \(fileURL.path). Choose another file.",
+                localized: "Rockxy can't write to \(displayedFileLocation). Choose another file.",
                 bundle: RockxyLocalization.bundle
             )
         }
@@ -110,19 +114,25 @@ struct TLSKeyLogWindowView: View {
             }
             .toggleStyle(.checkbox)
 
-            HStack(spacing: toolMetrics.controlSpacing) {
-                Text(verbatim: settings.fileURL.path)
-                    .font(toolMetrics.font(monospaced: true))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .help(settings.fileURL.path)
-                Spacer(minLength: 0)
-                Button(String(localized: "Choose…", bundle: RockxyLocalization.bundle), action: chooseFile)
-                Button(String(localized: "Show in Finder", bundle: RockxyLocalization.bundle)) {
-                    NSWorkspace.shared.activateFileViewerSelecting([settings.fileURL])
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(localized: "File on this Mac", bundle: RockxyLocalization.bundle))
+                    .font(toolMetrics.secondaryFont())
+                    .foregroundStyle(.secondary)
+                HStack(spacing: toolMetrics.controlSpacing) {
+                    Text(verbatim: settings.displayedFileLocation)
+                        .font(toolMetrics.font(monospaced: true))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .help(settings.displayedFileLocation)
+                        .accessibilityIdentifier("tlsKeyLog.location")
+                    Spacer(minLength: 0)
+                    Button(String(localized: "Choose…", bundle: RockxyLocalization.bundle), action: chooseFile)
+                    Button(String(localized: "Show in Finder", bundle: RockxyLocalization.bundle)) {
+                        NSWorkspace.shared.activateFileViewerSelecting([settings.fileURL])
+                    }
+                    .disabled(!FileManager.default.fileExists(atPath: settings.fileURL.path))
                 }
-                .disabled(!FileManager.default.fileExists(atPath: settings.fileURL.path))
             }
 
             if let errorMessage = settings.errorMessage {

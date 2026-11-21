@@ -7,7 +7,7 @@ import Testing
 struct ProtobufMappingRuleStoreTests {
     @Test("add, persist, reload, toggle, duplicate, and delete mapping rules")
     func mappingRuleLifecycle() throws {
-        let suiteName = "protobuf.mapping.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "protobuf.mapping.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -65,7 +65,7 @@ struct ProtobufMappingRuleStoreTests {
 
     @Test("schema reference distinguishes not-selected, missing, and selected")
     func schemaReferenceLabels() throws {
-        let suiteName = "protobuf.mapping.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "protobuf.mapping.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -111,7 +111,7 @@ struct ProtobufMappingRuleStoreTests {
 
     @Test("updating a stored disabled rule keeps it disabled through persistence")
     func updateKeepsDisabledRuleDisabled() throws {
-        let suiteName = "protobuf.mapping.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "protobuf.mapping.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -140,7 +140,7 @@ struct ProtobufMappingRuleStoreTests {
 
     @Test("detaching a schema clears references, counts them, and persists")
     func detachSchemaClearsAndPersistsReferences() throws {
-        let suiteName = "protobuf.mapping.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "protobuf.mapping.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -165,7 +165,7 @@ struct ProtobufMappingRuleStoreTests {
 
     @Test("updating a definition deleted elsewhere reports a conflict")
     func updateMissingRuleReportsConflict() throws {
-        let suiteName = "protobuf.mapping.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "protobuf.mapping.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 

@@ -85,6 +85,18 @@ struct RemoteAccessAddressRange: Equatable, Sendable {
 /// according to the mode. Devices refused while the mode is `listedDevices` are
 /// reported once each so the app can offer to allow them.
 final class RemoteAccessGate: @unchecked Sendable {
+    // MARK: Lifecycle
+
+    /// The providers are injectable so the interface snapshot's lifetime is testable without
+    /// reconfiguring the machine's interfaces.
+    init(
+        interfaceAddresses: (@Sendable () -> Set<[UInt8]>)? = nil,
+        now: (@Sendable () -> DispatchTime)? = nil
+    ) {
+        interfaceAddressProvider = interfaceAddresses ?? { RemoteAccessGate.systemInterfaceAddresses() }
+        self.now = now ?? { DispatchTime.now() }
+    }
+
     // MARK: Internal
 
     enum Decision: Equatable {
@@ -124,10 +136,13 @@ final class RemoteAccessGate: @unchecked Sendable {
         guard let clientAddress, let clientBytes = RemoteAccessAddressRange.addressBytes(clientAddress) else {
             return .deny
         }
-        if Self.isThisMac(clientBytes, localAddress: localAddress) {
+        // A listed device is allowed whichever answer the interface snapshot gives, so the
+        // list goes first: that keeps the snapshot out of the path for every device Access
+        // Control already allows, and the decision is the same either way.
+        if mode == .listedDevices, ranges.contains(where: { $0.contains(clientBytes) }) {
             return .allow
         }
-        if mode == .listedDevices, ranges.contains(where: { $0.contains(clientBytes) }) {
+        if isThisMac(clientBytes, localAddress: localAddress) {
             return .allow
         }
         if mode == .listedDevices {
@@ -138,26 +153,33 @@ final class RemoteAccessGate: @unchecked Sendable {
 
     // MARK: Private
 
+    /// How long one `getifaddrs` snapshot may stand in for the live interface list. A
+    /// snapshot that could never refresh would be wrong, not merely stale: an address this
+    /// Mac has released -- a DHCP lease handed on, a VPN address returned to the pool --
+    /// would keep reading as ours and admit whoever holds it next, regardless of mode. One
+    /// second bounds that window to about the length of a connection burst while still
+    /// collapsing the burst into a single lookup. Missing a NEW address only denies this
+    /// Mac, which fails closed and corrects itself on the next refresh.
+    private static let interfaceSnapshotLifetime: DispatchTimeInterval = .seconds(1)
+
+    /// The refusal set is a report-once aid so the app can offer to allow a blocked device,
+    /// not a ledger of everything refused. Refusal has already been decided by the time a
+    /// report is considered, so declining to report past the cap cannot admit anyone; it only
+    /// stops a client that cycles source addresses from growing this set -- and the stream of
+    /// notifications behind it -- without bound. Changing the policy clears it.
+    private static let maximumReportedAddresses = 64
+
+    private let interfaceAddressProvider: @Sendable () -> Set<[UInt8]>
+    private let now: @Sendable () -> DispatchTime
     private let lock = NSLock()
     private var mode: RemoteAccessMode = .allowAll
     private var ranges: [RemoteAccessAddressRange] = []
     private var reportedAddresses: Set<String> = []
     private var refusedHandler: (@Sendable (String) -> Void)?
+    private var interfaceSnapshot: Set<[UInt8]>?
+    private var interfaceSnapshotExpiry = DispatchTime.now()
 
-    private static func isThisMac(_ client: [UInt8], localAddress: String?) -> Bool {
-        if client.count == 4, client[0] == 127 {
-            return true
-        }
-        if client.count == 16, client == Array(repeating: 0, count: 15) + [1] {
-            return true
-        }
-        if let localAddress, RemoteAccessAddressRange.addressBytes(localAddress) == client {
-            return true
-        }
-        return interfaceAddresses().contains(client)
-    }
-
-    private static func interfaceAddresses() -> Set<[UInt8]> {
+    private static func systemInterfaceAddresses() -> Set<[UInt8]> {
         var head: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&head) == 0, let first = head else {
             return []
@@ -187,9 +209,42 @@ final class RemoteAccessGate: @unchecked Sendable {
         return result
     }
 
+    private func isThisMac(_ client: [UInt8], localAddress: String?) -> Bool {
+        if client.count == 4, client[0] == 127 {
+            return true
+        }
+        if client.count == 16, client == Array(repeating: 0, count: 15) + [1] {
+            return true
+        }
+        if let localAddress, RemoteAccessAddressRange.addressBytes(localAddress) == client {
+            return true
+        }
+        return currentInterfaceAddresses().contains(client)
+    }
+
+    /// Reached only after the cheaper checks in `isThisMac` have failed, for the same reason
+    /// `EmulatorHostAlias.connectHost` takes `localAddresses` as an autoclosure: the lookup
+    /// must not be paid by the connections that never need it. The refresh stays inside the
+    /// lock on purpose -- a burst of listener threads arriving together should refresh once,
+    /// not once each.
+    private func currentInterfaceAddresses() -> Set<[UInt8]> {
+        lock.withLock {
+            let timestamp = now()
+            if let interfaceSnapshot, timestamp < interfaceSnapshotExpiry {
+                return interfaceSnapshot
+            }
+            let refreshed = interfaceAddressProvider()
+            interfaceSnapshot = refreshed
+            interfaceSnapshotExpiry = timestamp + Self.interfaceSnapshotLifetime
+            return refreshed
+        }
+    }
+
     private func reportRefused(_ address: String) {
         let handler: (@Sendable (String) -> Void)? = lock.withLock {
-            guard reportedAddresses.insert(address).inserted else {
+            guard reportedAddresses.count < Self.maximumReportedAddresses,
+                  reportedAddresses.insert(address).inserted else
+            {
                 return nil
             }
             return refusedHandler

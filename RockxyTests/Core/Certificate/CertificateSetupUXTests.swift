@@ -7,12 +7,18 @@ import X509
 // MARK: - CertificateSetupUXTests
 
 struct CertificateSetupUXTests {
+    // MARK: Internal
+
     @Test("certificate status maps all setup states")
     func certificateStatusMapping() {
-        #expect(CertificateSetupState(snapshot: snapshot(generated: true, installed: true, trusted: true)) == .installedAndTrusted)
-        #expect(CertificateSetupState(snapshot: snapshot(generated: true, installed: true, trusted: false)) == .installedNotTrusted)
-        #expect(CertificateSetupState(snapshot: snapshot(generated: true, installed: false, trusted: false)) == .generatedOnly)
-        #expect(CertificateSetupState(snapshot: snapshot(generated: false, installed: false, trusted: false)) == .missing)
+        #expect(CertificateSetupState(snapshot: snapshot(generated: true, installed: true, trusted: true)) ==
+            .installedAndTrusted)
+        #expect(CertificateSetupState(snapshot: snapshot(generated: true, installed: true, trusted: false)) ==
+            .installedNotTrusted)
+        #expect(CertificateSetupState(snapshot: snapshot(generated: true, installed: false, trusted: false)) ==
+            .generatedOnly)
+        #expect(CertificateSetupState(snapshot: snapshot(generated: false, installed: false, trusted: false)) ==
+            .missing)
     }
 
     @Test("certificate menu routes every action to the expected destination")
@@ -22,11 +28,20 @@ struct CertificateSetupUXTests {
         #expect(router.route(for: .installOnMac) == .openCertificateSetupGuide)
         #expect(router.route(for: .installOniOSDevice) == .openDeveloperSetup(targetID: .iosDevice, tab: .setup))
         #expect(router.route(for: .installOniOSSimulator) == .openDeveloperSetup(targetID: .iosSimulator, tab: .setup))
-        #expect(router.route(for: .installOnAndroidDevice) == .openDeveloperSetup(targetID: .androidDevice, tab: .setup))
-        #expect(router.route(for: .installOnAndroidEmulator) == .openDeveloperSetup(targetID: .androidEmulator, tab: .setup))
+        #expect(router.route(for: .installOnAndroidDevice) == .openDeveloperSetup(
+            targetID: .androidDevice,
+            tab: .setup
+        ))
+        #expect(router.route(for: .installOnAndroidEmulator) == .openDeveloperSetup(
+            targetID: .androidEmulator,
+            tab: .setup
+        ))
         #expect(router.route(for: .installOnJavaVMs) == .openDeveloperSetup(targetID: .javaVMs, tab: .setup))
         #expect(router.route(for: .installOnFirefox) == .openDeveloperSetup(targetID: .firefox, tab: .setup))
-        #expect(router.route(for: .installOnDevelopment(.flutter)) == .openDeveloperSetup(targetID: .flutter, tab: .setup))
+        #expect(router.route(for: .installOnDevelopment(.flutter)) == .openDeveloperSetup(
+            targetID: .flutter,
+            tab: .setup
+        ))
         #expect(router.route(for: .addCustomCertificates) == .openCustomCertificates)
         #expect(router.route(for: .export(.rootCertificatePEM)) == .export(.rootCertificatePEM))
         #expect(router.route(for: .resetAll) == .resetAll)
@@ -34,7 +49,7 @@ struct CertificateSetupUXTests {
 
     @Test("manage certificates targets the General settings tab")
     func manageCertificatesSelectsGeneralSettings() throws {
-        let suiteName = "CertificateSetupUXTests.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "CertificateSetupUXTests.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -108,6 +123,8 @@ struct CertificateSetupUXTests {
             try service.export(payload, to: URL(fileURLWithPath: "/tmp/unused.pem"))
         }
     }
+
+    // MARK: Private
 
     private func snapshot(generated: Bool, installed: Bool, trusted: Bool) -> RootCAStatusSnapshot {
         RootCAStatusSnapshot(

@@ -47,7 +47,11 @@ struct RuleFolderStoreTests {
 
     @Test("Rows list folders first with their rules in rule order, then loose rules; search is flat")
     func rowsGroupByFolder() {
-        let rules = (0 ..< 4).map { ProxyRule(name: "r\($0)", matchCondition: RuleMatchCondition(), action: .breakpoint()) }
+        let rules = (0 ..< 4).map { ProxyRule(
+            name: "r\($0)",
+            matchCondition: RuleMatchCondition(),
+            action: .breakpoint()
+        ) }
         let folder = RuleFolder(id: UUID(), name: "F", ruleIDs: [rules[2].id, rules[0].id])
 
         let rows = RuleListRow.rows(rules: rules, folders: [folder], flat: false)
@@ -80,8 +84,8 @@ struct RuleFolderStoreTests {
     // MARK: Private
 
     private func isolatedDefaults() throws -> (UserDefaults, String) {
-        let suite = "rule-folders-\(UUID().uuidString)"
-        return (try #require(UserDefaults(suiteName: suite)), suite)
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "rule-folders-")
+        return try (#require(UserDefaults(suiteName: suite)), suite)
     }
 }
 
@@ -102,12 +106,16 @@ struct RuleFolderDragTests {
 
     @Test("Dropping onto a folder moves rules in; onto a loose rule moves them to the top level")
     func dropTargets() throws {
-        let suite = "RuleFolderDragTests.\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "RuleFolderDragTests.")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = RuleFolderStore(tool: "dragTest", defaults: defaults)
         let rules = (0 ..< 3).map { index in
-            ProxyRule(name: "Rule \(index)", matchCondition: RuleMatchCondition(urlPattern: ".*"), action: .block(statusCode: 403))
+            ProxyRule(
+                name: "Rule \(index)",
+                matchCondition: RuleMatchCondition(urlPattern: ".*"),
+                action: .block(statusCode: 403)
+            )
         }
         let known = Set(rules.map(\.id))
         let folderID = try #require(store.createFolder(named: "Mocks", containing: [rules[0].id]))

@@ -11,7 +11,13 @@ struct FocusSidebarPresentationTests {
     func addFavoriteRevealsLibraryEntry() throws {
         let source = try readProjectFile("Rockxy/Views/Sidebar/AddFavoriteView.swift")
         let start = try #require(source.range(of: "private func addSelectedFavorite() {"))
-        let end = try #require(source.range(of: "private func buildAppCandidates()", range: start.upperBound ..< source.endIndex))
+        // `addSelectedFavorite` is the last member of the view, so the next type's mark bounds
+        // its body. It used to be bounded by `buildAppCandidates`, which was removed when the
+        // Apps list moved onto the maintained app index.
+        let end = try #require(source.range(
+            of: "// MARK: - FavoriteCandidate",
+            range: start.upperBound ..< source.endIndex
+        ))
         let body = source[start.lowerBound ..< end.lowerBound]
 
         #expect(body.contains("coordinator.addFavorite(favorite)"))

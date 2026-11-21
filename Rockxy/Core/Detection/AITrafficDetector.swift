@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // MARK: - AITrafficDetector
 
@@ -12,15 +13,34 @@ import Foundation
 /// including OpenAI chat/Responses, Anthropic Messages, Gemini, and Ollama shapes, in both
 /// their JSON and streamed (SSE / NDJSON) forms.
 nonisolated enum AITrafficDetector {
+    // MARK: Internal
+
     struct ParsedStreamEvent {
         let event: AIStreamEvent
         let json: [String: Any]?
+    }
+
+    /// Uncached evaluations of `signal(transaction:)`: one decodes the response body and scans
+    /// bounded prefixes of both bodies, which is real work on a busy capture. The split shows
+    /// whether that work ran on the main thread, where it competes with the UI, or elsewhere.
+    struct SignalEvaluationCounts: Equatable, Sendable {
+        var total = 0
+        var onMainThread = 0
     }
 
     static let maxBodyBytes = 256 * 1_024
     static let maxQuickScanBytes = 16 * 1_024
     static let maxStreamEvents = 400
     static let maxAssembledOutputCharacters = 20_000
+
+    static var signalEvaluationCounts: SignalEvaluationCounts {
+        evaluationCounts.withLock { $0 }
+    }
+
+    /// Entries the signal cache currently holds, as an upper bound.
+    static var cachedSignalCount: Int {
+        signalCache.count
+    }
 
     static func isLikelyAI(transaction: HTTPTransaction) -> Bool {
         isLikelyAI(snapshot: AITrafficSnapshot(transaction: transaction))
@@ -30,15 +50,54 @@ nonisolated enum AITrafficDetector {
     /// a body scan per row per batch made that quadratic. The entry is reused only while the
     /// same transaction's request and response evidence is unchanged.
     static func signal(transaction: HTTPTransaction) -> AITrafficSignal {
-        let cacheKey = transaction.id as NSUUID
-        if let cached = signalCache.object(forKey: cacheKey),
+        if let cached = signalCache.entry(for: transaction.id),
            cached.transaction === transaction, cached.revision == transaction.signalEvidenceRevision
         {
             return cached.signal
         }
         let signal = signal(snapshot: AITrafficSnapshot(transaction: transaction))
-        signalCache.setObject(SignalCacheEntry(transaction: transaction, signal: signal), forKey: cacheKey)
+        signalCache.store(SignalCacheEntry(transaction: transaction, signal: signal))
+        let onMainThread = Thread.isMainThread
+        evaluationCounts.withLock { counts in
+            counts.total += 1
+            if onMainThread {
+                counts.onMainThread += 1
+            }
+        }
         return signal
+    }
+
+    /// Evaluates and caches the signal for a settled transaction, so the main-actor row
+    /// projection that follows reads the cache. Safe to call off the main actor: it only reads
+    /// request and response evidence and writes the thread-safe cache, never the transaction.
+    /// Callers must pass a transaction that is no longer being mutated.
+    static func prewarmSignal(for transaction: HTTPTransaction) {
+        _ = signal(transaction: transaction)
+    }
+
+    /// Drops the cached signal and filter facts for transactions that have left the list. Their
+    /// entries hold only a weak reference to the transaction, so once it is gone they can never
+    /// hit again and would otherwise occupy the cache until the count limit evicts them.
+    /// Takes a collection because eviction removes rows in batches. Ids that were never cached
+    /// are ignored.
+    static func discardCachedEvidence(for ids: some Collection<UUID>) {
+        guard !ids.isEmpty else {
+            return
+        }
+        signalCache.discard(ids)
+        // `factsCache` is private to the extension file that owns it, so the discard goes
+        // through that file rather than widening the cache's access.
+        discardCachedFilterFacts(for: ids)
+    }
+
+    /// The cached signal when it is still valid for the transaction's current evidence.
+    static func cachedSignal(transaction: HTTPTransaction) -> AITrafficSignal? {
+        guard let cached = signalCache.entry(for: transaction.id),
+              cached.transaction === transaction, cached.revision == transaction.signalEvidenceRevision else
+        {
+            return nil
+        }
+        return cached.signal
     }
 
     static func signal(snapshot: AITrafficSnapshot) -> AITrafficSignal {
@@ -187,32 +246,6 @@ nonisolated enum AITrafficDetector {
 
     static func lowercasedPrefix(of data: Data?) -> String {
         data.flatMap { String(bytes: $0.prefix(maxQuickScanBytes), encoding: .utf8)?.lowercased() } ?? ""
-    }
-
-    private final class SignalCacheEntry {
-        weak var transaction: HTTPTransaction?
-        let revision: UInt64
-        let signal: AITrafficSignal
-
-        init(transaction: HTTPTransaction, signal: AITrafficSignal) {
-            self.transaction = transaction
-            revision = transaction.signalEvidenceRevision
-            self.signal = signal
-        }
-    }
-
-    /// `NSCache` is thread-safe and sheds entries under memory pressure; the count limit keeps
-    /// it in step with the largest live session buffer.
-    nonisolated(unsafe) private static let signalCache: NSCache<NSUUID, SignalCacheEntry> = {
-        let cache = NSCache<NSUUID, SignalCacheEntry>()
-        cache.countLimit = 100_000
-        return cache
-    }()
-
-    /// Byte-wise substring search. Foundation's `StringProtocol.contains` walks the text with
-    /// locale-aware comparison and dominated request-list derivation on busy sessions.
-    private static func contains(_ text: String, _ needle: String) -> Bool {
-        text.utf8.firstRange(of: needle.utf8) != nil
     }
 
     // MARK: Provider
@@ -609,5 +642,53 @@ nonisolated enum AITrafficDetector {
 
     static func headerValue(named name: String, in headers: [HTTPHeader]) -> String? {
         headers.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
+    }
+
+    // MARK: Private
+
+    private final class SignalCacheEntry: TransactionCacheEntry {
+        // MARK: Lifecycle
+
+        init(transaction: HTTPTransaction, signal: AITrafficSignal) {
+            self.transaction = transaction
+            cacheID = transaction.id
+            revision = transaction.signalEvidenceRevision
+            self.signal = signal
+        }
+
+        // MARK: Internal
+
+        let cacheID: UUID
+        weak var transaction: HTTPTransaction?
+        let revision: UInt64
+        let signal: AITrafficSignal
+    }
+
+    private static let evaluationCounts = OSAllocatedUnfairLock(initialState: SignalEvaluationCounts())
+
+    /// `NSCache` is thread-safe and sheds entries under memory pressure; the count limit keeps
+    /// it in step with the largest live session buffer. Rows that leave the list are discarded
+    /// through `discardCachedEvidence(for:)`, so the limit is a backstop rather than the bound.
+    /// Pinned against shedding inside a test host.
+    ///
+    /// Tests observe this shared cache indirectly and assert that a warmed entry is still
+    /// there. `NSCache` may shed at any moment, so those assertions were order- and
+    /// pressure-dependent: `CaptureDeliveryCostTests` passed in one full run and failed the
+    /// next with no code change between them. Pinning is applied only to the two shared
+    /// detector caches, so `TransactionEvidenceCacheTests`, which builds its own instances to
+    /// test eviction at a count limit, still sees real shedding. `isRunningTests` is decided
+    /// from the loaded images, which a shipped app cannot be made to fake.
+    private static let signalCache: TransactionEvidenceCache<SignalCacheEntry> = {
+        let cache = TransactionEvidenceCache<SignalCacheEntry>(countLimit: 100_000)
+        if RockxyIdentity.isRunningTests {
+            cache.pinEntriesAgainstShedding()
+        }
+        return cache
+    }()
+
+    /// Byte-wise substring search. Foundation's `StringProtocol.contains` walks the text with
+    /// locale-aware comparison and dominated request-list derivation on busy sessions.
+    private static func contains(_ text: String, _ needle: String) -> Bool {
+        text.utf8.firstRange(of: needle.utf8) != nil
     }
 }

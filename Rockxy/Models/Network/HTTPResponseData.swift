@@ -1,5 +1,7 @@
 import Foundation
 
+// MARK: - HTTPResponseData
+
 /// Captured HTTP response data including status code, headers, and optional body.
 /// Provides convenience accessors for cookie parsing and status code classification
 /// used by the inspector UI and protocol filters.
@@ -9,9 +11,15 @@ struct HTTPResponseData: Sendable {
     var headers: [HTTPHeader]
     var body: Data?
     var bodyTruncated: Bool = false
+    var bodyOmission: BodyOmissionMetadata?
+
     /// Headers sent after the body, such as gRPC's `grpc-status`; nil when none were sent.
     var trailers: [HTTPHeader]?
     var contentType: ContentType?
+
+    var isBodyIncomplete: Bool {
+        bodyTruncated || bodyOmission != nil
+    }
 
     var setCookies: [HTTPCookie] {
         let headerFields = Dictionary(

@@ -10,10 +10,12 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct AdvancedFilterBarKeyboardTests {
+    // MARK: Internal
+
     @Test("Escape in the focused value field hides the bar")
     func escapeInValueFieldHides() async throws {
         var hideCount = 0
-        let suite = "AdvancedFilterBarKeyboardTests-\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "AdvancedFilterBarKeyboardTests-")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let store = FilterPresetStore(userDefaults: defaults, storageKey: "presets")
@@ -85,6 +87,8 @@ struct AdvancedFilterBarKeyboardTests {
 
         #expect(!presentation.isPresented)
     }
+
+    // MARK: Private
 
     private static func escapeEvent(windowNumber: Int) throws -> NSEvent {
         try #require(NSEvent.keyEvent(

@@ -307,7 +307,14 @@ enum ScriptMultiArgBridge {
     )
 
     nonisolated(unsafe) private static var warnedHostMutations: Set<String> = []
+    nonisolated(unsafe) private static var warnedHostMutationOrder: [String] = []
     private static let warnedHostMutationsLock = NSLock()
+    /// Defensive, not load-bearing: the key is `pluginID|kind`, `kind` comes from the three
+    /// literals in `warnIfHostMutated` and `pluginID` is a discovered bundle's `manifest.id`,
+    /// so the set is bounded by installed plugins and no traffic or script input can mint a
+    /// key. The cap is here so this set cannot differ from `ScriptRequestContext`'s 256 and
+    /// `ProxyHandlerShared`'s 64 if a future caller passes a key that is not fixed.
+    private static let warnedHostMutationLimit = 256
 
     private static func resolveResponseBody(
         source: JSValue,
@@ -427,6 +434,13 @@ enum ScriptMultiArgBridge {
             return
         }
         warnedHostMutations.insert(key)
+        warnedHostMutationOrder.append(key)
+        if warnedHostMutationOrder.count > warnedHostMutationLimit,
+           let evicted = warnedHostMutationOrder.first
+        {
+            warnedHostMutationOrder.removeFirst()
+            warnedHostMutations.remove(evicted)
+        }
         logger.warning(
             "Plugin \(pluginID) attempted to change request \(kind); discarding. Use MapRemote rule action for cross-host rewrite."
         )

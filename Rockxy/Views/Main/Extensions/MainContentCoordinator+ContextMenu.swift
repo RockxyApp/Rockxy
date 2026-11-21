@@ -150,9 +150,12 @@ extension MainContentCoordinator {
     // MARK: - Pin / Highlight / Comment
 
     func togglePin(for transaction: HTTPTransaction) {
+        let previous = transaction.isPinned
         transaction.isPinned.toggle()
         invalidateSidebarFavoriteCache()
-        persistTransaction(transaction)
+        persistTransaction(transaction, onFailure: .rollBackFlag {
+            if transaction.isPinned != previous { transaction.isPinned = previous }
+        })
         refreshRowsAfterMutation()
     }
 
@@ -320,9 +323,12 @@ extension MainContentCoordinator {
     // MARK: - Save Request
 
     func saveRequest(_ transaction: HTTPTransaction) {
+        let previous = transaction.isSaved
         transaction.isSaved.toggle()
         invalidateSidebarFavoriteCache()
-        persistTransaction(transaction)
+        persistTransaction(transaction, onFailure: .rollBackFlag {
+            if transaction.isSaved != previous { transaction.isSaved = previous }
+        })
         refreshRowsAfterMutation()
     }
 
@@ -353,6 +359,9 @@ extension MainContentCoordinator {
         _ transaction: HTTPTransaction,
         from section: FavoriteTransactionSection
     ) {
+        let previousPinned = transaction.isPinned
+        let previousSaved = transaction.isSaved
+        let previousComment = transaction.comment
         switch section {
         case .pinned:
             transaction.isPinned = false
@@ -365,7 +374,12 @@ extension MainContentCoordinator {
 
         invalidateSidebarFavoriteCache()
         updatePersistedFavoriteCache(after: transaction)
-        persistTransaction(transaction)
+        // A removal that did not persist comes back on relaunch, so the row is put back now.
+        persistTransaction(transaction, onFailure: .rollBackFlag {
+            transaction.isPinned = previousPinned
+            transaction.isSaved = previousSaved
+            transaction.comment = previousComment
+        })
         refreshRowsAfterMutation()
 
         if sidebarSelection == section.sidebarItem(for: transaction.id) {
@@ -485,19 +499,64 @@ extension MainContentCoordinator {
 
     // MARK: - Persistence
 
-    func persistTransaction(_ transaction: HTTPTransaction) {
+    /// How a failed write is handled. Roll back a FLAG: a pin or star that lies about
+    /// persistence looks identical to one that told the truth, so it must be undone. Keep CONTENT:
+    /// discarding text the user typed to report that it did not save costs them something a
+    /// rollback cannot give back, so it stays in memory and the failure is announced instead.
+    enum PersistFailureHandling {
+        case rollBackFlag(() -> Void)
+        case keepContent
+    }
+
+    /// Writes the transaction. A failed write is never only logged: the in-memory change has
+    /// already shown, so the user is told, and a flag is rolled back (see `PersistFailureHandling`).
+    func persistTransaction(
+        _ transaction: HTTPTransaction,
+        onFailure handling: PersistFailureHandling = .keepContent
+    ) {
+        let store: SessionStore
         do {
-            let store = try resolveSessionStore()
-            Task {
-                do {
-                    try await store.saveTransaction(transaction)
-                } catch {
-                    Self.logger.error("Failed to persist transaction: \(error.localizedDescription)")
-                }
-            }
+            store = try resolveSessionStore()
         } catch {
             Self.logger.error("Failed to create SessionStore: \(error.localizedDescription)")
+            reportPersistenceFailure(for: transaction, handling)
+            return
         }
+        Task { [weak self] in
+            do {
+                try await store.saveTransaction(transaction)
+            } catch {
+                Self.logger.error("Failed to persist transaction: \(error.localizedDescription)")
+                self?.reportPersistenceFailure(for: transaction, handling)
+            }
+        }
+    }
+
+    private func reportPersistenceFailure(for transaction: HTTPTransaction, _ handling: PersistFailureHandling) {
+        let text: String
+        switch handling {
+        case let .rollBackFlag(rollback):
+            rollback()
+            updatePersistedFavoriteCache(after: transaction)
+            invalidateSidebarFavoriteCache()
+            refreshRowsAfterMutation()
+            text = String(
+                localized: "This request could not be saved, so the change was undone.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .keepContent:
+            let name = favoriteTransactionDisplayName(transaction)
+            text = transaction.hasNote
+                ? String(
+                    localized: "Your note on \(name) was not saved and will be lost when Rockxy quits.",
+                    bundle: RockxyLocalization.bundle
+                )
+                : String(
+                    localized: "Your change to \(name) was not saved and will be lost when Rockxy quits.",
+                    bundle: RockxyLocalization.bundle
+                )
+        }
+        activeToast = ToastMessage(style: .warning, text: text)
     }
 
     func updatePersistedFavoriteCache(after transaction: HTTPTransaction) {
@@ -554,6 +613,9 @@ extension MainContentCoordinator {
     func deleteTransactions(_ transactionsToDelete: [HTTPTransaction]) {
         let ids = Set(transactionsToDelete.map(\.id))
         transactions.removeAll { ids.contains($0.id) }
+        // The user asked for these rows to go for good; their cached AI evidence can never hit
+        // again. Hygiene only -- the cache holds no header, cookie or body material.
+        AITrafficDetector.discardCachedEvidence(for: ids)
         syncActiveProjectHistory()
         rebuildObservedDomainsByApp()
         recomputeErrorCount()

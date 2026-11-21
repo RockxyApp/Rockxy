@@ -8,6 +8,8 @@ import Testing
 /// Actual SwiftUI lifecycle behavior (.task(id:) firing, tab-button interaction) is not
 /// covered by this suite. Those behaviors remain manual verification scope for now.
 struct InspectorRoutingTests {
+    // MARK: Internal
+
     // MARK: - Model Facts
 
     @Test("HTTP transaction has no WebSocket connection")
@@ -62,8 +64,29 @@ struct InspectorRoutingTests {
         let snapshot = InspectorResponseSnapshot(response: response)
 
         #expect(snapshot.body == compressed)
-        #expect(String(data: try #require(snapshot.displayBody), encoding: .utf8) == html)
-        #expect(InspectorPayloadFormatter.responseDisplayText(body: try #require(snapshot.displayBody), sortedKeys: false) == html)
+        #expect(try String(data: #require(snapshot.displayBody), encoding: .utf8) == html)
+        #expect(try InspectorPayloadFormatter.responseDisplayText(
+            body: #require(snapshot.displayBody),
+            sortedKeys: false
+        ) == html)
+    }
+
+    @Test("Truncated response metadata stays available with the inspector display snapshot")
+    func truncatedResponseMetadataIsPreservedForInspector() {
+        var response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [],
+            body: Data("partial".utf8),
+            contentType: .text
+        )
+        response.bodyTruncated = true
+
+        let snapshot = InspectorResponseSnapshot(response: response)
+
+        #expect(response.bodyTruncated)
+        #expect(snapshot.isBodyIncomplete)
+        #expect(snapshot.body == Data("partial".utf8))
     }
 
     @Test("Raw response text uses decoded gzip body while preserving headers")
@@ -113,7 +136,8 @@ struct InspectorRoutingTests {
         }
 
         if case let .json(object) = PreviewRenderer.render(body: body, mode: .jsonTree),
-           let dict = object as? [String: Any] {
+           let dict = object as? [String: Any]
+        {
             #expect(dict["name"] as? String == "Rockxy")
         } else {
             Issue.record("Expected decoded JSON tree preview")
@@ -121,7 +145,7 @@ struct InspectorRoutingTests {
     }
 
     @Test("Invalid and unsupported response encodings fall back to original body")
-    func unsupportedResponseEncodingsFallBackToOriginalBody() throws {
+    func unsupportedResponseEncodingsFallBackToOriginalBody() {
         let invalidCompressedBody = Data([0x00, 0x01, 0x02, 0x03])
         let invalidResponse = HTTPResponseData(
             statusCode: 200,
@@ -155,7 +179,7 @@ struct InspectorRoutingTests {
 
         #expect(snapshot.body == compressed)
         #expect(snapshot.displayBody != compressed)
-        #expect(PreviewRenderer.formatHexDump(try #require(snapshot.body)) == PreviewRenderer.formatHexDump(compressed))
+        #expect(try PreviewRenderer.formatHexDump(#require(snapshot.body)) == PreviewRenderer.formatHexDump(compressed))
     }
 
     @Test("WebSocket transaction preserves HTTP request for upgrade headers")
@@ -499,7 +523,8 @@ struct InspectorRoutingTests {
     func rawTunnelReasonsMap() {
         #expect(TLSInterceptHandler.RawTunnelReason.bypassProxyList.tunnelReason == .bypassList)
         #expect(TLSInterceptHandler.RawTunnelReason.noSSLProxyingRule.tunnelReason == .noDecryptionRule)
-        #expect(TLSInterceptHandler.RawTunnelReason.unresolvedApplicationIdentity.tunnelReason == .unresolvedApplication)
+        #expect(TLSInterceptHandler.RawTunnelReason.unresolvedApplicationIdentity
+            .tunnelReason == .unresolvedApplication)
         #expect(TLSInterceptHandler.RawTunnelReason.autoPassthrough.tunnelReason == .autoPassthrough)
     }
 
@@ -624,126 +649,6 @@ struct InspectorRoutingTests {
 
         #expect(prompt?.insight == .tlsInterceptionRejected)
         #expect(prompt?.hostScope?.action == .retryDomain("secure.example.com"))
-    }
-
-    // MARK: - Compression Helpers
-
-    private func compress(_ input: Data, algorithm: compression_algorithm) -> Data? {
-        let capacity = max(input.count * 4, 1_024)
-        let destBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
-        defer { destBuffer.deallocate() }
-        let compressedSize = input.withUnsafeBytes { srcPtr -> Int in
-            guard let base = srcPtr.baseAddress else {
-                return 0
-            }
-            return compression_encode_buffer(
-                destBuffer,
-                capacity,
-                base.assumingMemoryBound(to: UInt8.self),
-                input.count,
-                nil,
-                algorithm
-            )
-        }
-        guard compressedSize > 0 else {
-            return nil
-        }
-        return Data(bytes: destBuffer, count: compressedSize)
-    }
-
-    private func wrapInGzip(_ deflatedData: Data, originalData: Data) -> Data {
-        var gzip = Data()
-        gzip.append(contentsOf: [0x1F, 0x8B, 0x08, 0x00])
-        gzip.append(contentsOf: [0x00, 0x00, 0x00, 0x00])
-        gzip.append(contentsOf: [0x00, 0x03])
-        gzip.append(deflatedData)
-
-        var crc: UInt32 = 0
-        originalData.withUnsafeBytes { ptr in
-            crc = Self.crc32(ptr)
-        }
-        withUnsafeBytes(of: crc.littleEndian) { gzip.append(contentsOf: $0) }
-
-        let size = UInt32(originalData.count & 0xFFFF_FFFF)
-        withUnsafeBytes(of: size.littleEndian) { gzip.append(contentsOf: $0) }
-        return gzip
-    }
-
-    private static func crc32(_ buffer: UnsafeRawBufferPointer) -> UInt32 {
-        var crc: UInt32 = 0xFFFF_FFFF
-        for byte in buffer {
-            crc ^= UInt32(byte)
-            for _ in 0 ..< 8 {
-                if crc & 1 != 0 {
-                    crc = (crc >> 1) ^ 0xEDB8_8320
-                } else {
-                    crc >>= 1
-                }
-            }
-        }
-        return crc ^ 0xFFFF_FFFF
-    }
-
-    private func makeWeb3RPCTransaction(graphQLInfo: GraphQLInfo? = nil) -> HTTPTransaction {
-        guard let url = URL(string: "https://rpc.example.com") else {
-            preconditionFailure("Expected valid Web3 RPC fixture URL")
-        }
-        let request = HTTPRequestData(
-            method: "POST",
-            url: url,
-            httpVersion: "HTTP/1.1",
-            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
-            body: Data(#"{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}"#.utf8),
-            contentType: .json
-        )
-        let response = HTTPResponseData(
-            statusCode: 200,
-            statusMessage: "OK",
-            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
-            body: Data(#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#.utf8),
-            contentType: .json
-        )
-        return HTTPTransaction(
-            request: request,
-            response: response,
-            state: .completed,
-            graphQLInfo: graphQLInfo,
-            web3RPCInfo: Web3RPCInfo(
-                family: .evm,
-                providerHost: "rpc.example.com",
-                method: "eth_blockNumber",
-                requestID: "1",
-                batch: nil,
-                error: nil,
-                chainHint: Web3RPCChainHint(chainID: "0x1"),
-                transactionHash: nil,
-                blockIdentifier: nil,
-                requestPayloadSize: request.body?.count,
-                responsePayloadSize: response.body?.count
-            )
-        )
-    }
-
-    private func makeJSONRPCTransaction(body: String?) -> HTTPTransaction {
-        guard let url = URL(string: "https://rpc.example.com") else {
-            preconditionFailure("Expected valid JSON-RPC fixture URL")
-        }
-        let request = HTTPRequestData(
-            method: "POST",
-            url: url,
-            httpVersion: "HTTP/1.1",
-            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
-            body: body.map { Data($0.utf8) },
-            contentType: .json
-        )
-        let response = HTTPResponseData(
-            statusCode: 200,
-            statusMessage: "OK",
-            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
-            body: Data(#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#.utf8),
-            contentType: .json
-        )
-        return HTTPTransaction(request: request, response: response, state: .completed)
     }
 
     @Test("CONNECT tunnel with an existing host rule exposes ready status")
@@ -880,5 +785,127 @@ struct InspectorRoutingTests {
         #expect(transaction.webSocketFrameVersion == 0)
         transaction.webSocketFrameVersion += 1
         #expect(transaction.webSocketFrameVersion == 1)
+    }
+
+    // MARK: Private
+
+    private static func crc32(_ buffer: UnsafeRawBufferPointer) -> UInt32 {
+        var crc: UInt32 = 0xFFFFFFFF
+        for byte in buffer {
+            crc ^= UInt32(byte)
+            for _ in 0 ..< 8 {
+                if crc & 1 != 0 {
+                    crc = (crc >> 1) ^ 0xEDB88320
+                } else {
+                    crc >>= 1
+                }
+            }
+        }
+        return crc ^ 0xFFFFFFFF
+    }
+
+    // MARK: - Compression Helpers
+
+    private func compress(_ input: Data, algorithm: compression_algorithm) -> Data? {
+        let capacity = max(input.count * 4, 1_024)
+        let destBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
+        defer { destBuffer.deallocate() }
+        let compressedSize = input.withUnsafeBytes { srcPtr -> Int in
+            guard let base = srcPtr.baseAddress else {
+                return 0
+            }
+            return compression_encode_buffer(
+                destBuffer,
+                capacity,
+                base.assumingMemoryBound(to: UInt8.self),
+                input.count,
+                nil,
+                algorithm
+            )
+        }
+        guard compressedSize > 0 else {
+            return nil
+        }
+        return Data(bytes: destBuffer, count: compressedSize)
+    }
+
+    private func wrapInGzip(_ deflatedData: Data, originalData: Data) -> Data {
+        var gzip = Data()
+        gzip.append(contentsOf: [0x1F, 0x8B, 0x08, 0x00])
+        gzip.append(contentsOf: [0x00, 0x00, 0x00, 0x00])
+        gzip.append(contentsOf: [0x00, 0x03])
+        gzip.append(deflatedData)
+
+        var crc: UInt32 = 0
+        originalData.withUnsafeBytes { ptr in
+            crc = Self.crc32(ptr)
+        }
+        withUnsafeBytes(of: crc.littleEndian) { gzip.append(contentsOf: $0) }
+
+        let size = UInt32(originalData.count & 0xFFFFFFFF)
+        withUnsafeBytes(of: size.littleEndian) { gzip.append(contentsOf: $0) }
+        return gzip
+    }
+
+    private func makeWeb3RPCTransaction(graphQLInfo: GraphQLInfo? = nil) -> HTTPTransaction {
+        guard let url = URL(string: "https://rpc.example.com") else {
+            preconditionFailure("Expected valid Web3 RPC fixture URL")
+        }
+        let request = HTTPRequestData(
+            method: "POST",
+            url: url,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}"#.utf8),
+            contentType: .json
+        )
+        let response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#.utf8),
+            contentType: .json
+        )
+        return HTTPTransaction(
+            request: request,
+            response: response,
+            state: .completed,
+            graphQLInfo: graphQLInfo,
+            web3RPCInfo: Web3RPCInfo(
+                family: .evm,
+                providerHost: "rpc.example.com",
+                method: "eth_blockNumber",
+                requestID: "1",
+                batch: nil,
+                error: nil,
+                chainHint: Web3RPCChainHint(chainID: "0x1"),
+                transactionHash: nil,
+                blockIdentifier: nil,
+                requestPayloadSize: request.body?.count,
+                responsePayloadSize: response.body?.count
+            )
+        )
+    }
+
+    private func makeJSONRPCTransaction(body: String?) -> HTTPTransaction {
+        guard let url = URL(string: "https://rpc.example.com") else {
+            preconditionFailure("Expected valid JSON-RPC fixture URL")
+        }
+        let request = HTTPRequestData(
+            method: "POST",
+            url: url,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: body.map { Data($0.utf8) },
+            contentType: .json
+        )
+        let response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#.utf8),
+            contentType: .json
+        )
+        return HTTPTransaction(request: request, response: response, state: .completed)
     }
 }

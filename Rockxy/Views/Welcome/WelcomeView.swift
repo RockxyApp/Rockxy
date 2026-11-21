@@ -150,7 +150,7 @@ struct WelcomeView: View {
                 id: 4,
                 title: String(localized: "Enable System Proxy", bundle: RockxyLocalization.bundle),
                 detail: String(
-                    localized: "Route macOS network traffic through Rockxy for capture.",
+                    localized: "Optional for manually configured apps and devices. Enable only to route this Mac's proxy-aware traffic through Rockxy.",
                     bundle: RockxyLocalization.bundle
                 ),
                 symbol: "network",

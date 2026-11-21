@@ -9,6 +9,100 @@ import Testing
 struct SessionSerializerTests {
     // MARK: - Round-Trip
 
+    @Test(
+        "Session round-trip preserves retained bytes without losing incomplete-body status",
+        arguments: [Data(), Data("partial".utf8)]
+    )
+    func roundTripRetainedPartialBodies(body: Data) throws {
+        let transaction = TestFixtures.makeTransaction(method: "POST", url: "https://example.test/partial")
+        let omission = BodyOmissionMetadata(
+            reason: "bodyLimit",
+            observedBytes: body.count,
+            originalBytes: body.count + 10
+        )
+        transaction.request.body = body
+        transaction.request.bodyTruncated = true
+        transaction.request.bodyOmission = omission
+        transaction.response = HTTPResponseData(
+            statusCode: 200, statusMessage: "OK", headers: [], body: body,
+            bodyTruncated: true, bodyOmission: omission
+        )
+        let data = try SessionSerializer.serialize(
+            transactions: [transaction], metadata: SessionSerializer.makeMetadata(transactionCount: 1)
+        )
+        let session = try SessionSerializer.deserialize(from: data)
+        let restored = try #require(session.transactions.first).toLiveModel()
+
+        #expect(restored.request.body == body)
+        #expect(restored.response?.body == body)
+        #expect(restored.request.isBodyIncomplete)
+        #expect(restored.response?.isBodyIncomplete == true)
+        #expect(restored.request.bodyOmission == omission)
+        #expect(restored.response?.bodyOmission == omission)
+    }
+
+    @Test("Session bodies omitted by the inline storage limit remain absent and marked incomplete")
+    func roundTripStorageOmittedBodies() throws {
+        let body = Data(repeating: 0x61, count: 10 * 1_024 * 1_024 + 1)
+        let transaction = TestFixtures.makeTransaction(method: "POST", url: "https://example.test/storage-limit")
+        transaction.request.body = body
+        transaction.response = HTTPResponseData(statusCode: 200, statusMessage: "OK", headers: [], body: body)
+        let data = try SessionSerializer.serialize(
+            transactions: [transaction], metadata: SessionSerializer.makeMetadata(transactionCount: 1)
+        )
+        let session = try SessionSerializer.deserialize(from: data)
+        let saved = try #require(session.transactions.first)
+        #expect(saved.request.bodyBase64 == nil)
+        #expect(saved.response?.bodyBase64 == nil)
+        #expect(saved.request.originalBodySize == body.count)
+        #expect(saved.response?.originalBodySize == body.count)
+        let restored = saved.toLiveModel()
+        #expect(restored.request.body == nil)
+        #expect(restored.response?.body == nil)
+        #expect(restored.request.isBodyIncomplete)
+        #expect(restored.response?.isBodyIncomplete == true)
+        let storageOmission = BodyOmissionMetadata(
+            reason: "sessionStorageLimit", observedBytes: body.count, originalBytes: body.count
+        )
+        #expect(restored.request.bodyOmission == storageOmission)
+        #expect(restored.response?.bodyOmission == storageOmission)
+
+        let capturedOmission = BodyOmissionMetadata(
+            reason: "producerLimit", observedBytes: body.count, originalBytes: body.count + 10
+        )
+        transaction.request.bodyOmission = capturedOmission
+        transaction.response?.bodyOmission = capturedOmission
+        let capturedData = try SessionSerializer.serialize(
+            transactions: [transaction], metadata: SessionSerializer.makeMetadata(transactionCount: 1)
+        )
+        let capturedSession = try SessionSerializer.deserialize(from: capturedData)
+        let capturedRestored = try #require(capturedSession.transactions.first).toLiveModel()
+        #expect(capturedRestored.request.bodyOmission == capturedOmission)
+        #expect(capturedRestored.response?.bodyOmission == capturedOmission)
+    }
+
+    @Test("Legacy storage size recovery rejects invalid sizes", arguments: [-1, 0, Int.max])
+    func invalidLegacyStorageSizesDoNotBecomeCaptureMetadata(size: Int) throws {
+        let request: [String: Any] = [
+            "method": "GET", "url": "https://example.test/legacy", "httpVersion": "HTTP/1.1",
+            "headers": [], "bodyTruncated": true, "originalBodySize": size
+        ]
+        let decoded = try JSONDecoder().decode(
+            CodableRequest.self, from: JSONSerialization.data(withJSONObject: request)
+        ).toLiveModel()
+        #expect(decoded.bodyOmission == nil)
+        #expect(decoded.isBodyIncomplete)
+        let response: [String: Any] = [
+            "statusCode": 200, "statusMessage": "OK", "headers": [],
+            "bodyTruncated": true, "originalBodySize": size
+        ]
+        let decodedResponse = try JSONDecoder().decode(
+            CodableResponse.self, from: JSONSerialization.data(withJSONObject: response)
+        ).toLiveModel()
+        #expect(decodedResponse.bodyOmission == nil)
+        #expect(decodedResponse.isBodyIncomplete)
+    }
+
     @Test("Round-trip preserves transaction count")
     func roundTripTransactionCount() throws {
         let transactions = TestFixtures.makeBulkTransactions(count: 5)

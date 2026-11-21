@@ -20,6 +20,12 @@ enum MCPLimits {
     /// Idle session expiry interval in seconds.
     static let sessionTimeout: TimeInterval = 30 * 60
 
+    /// Absolute ceiling on a session's life, however actively it is used. Long enough to
+    /// cover a working day of agent traffic, short enough that a leaked session id cannot
+    /// be refreshed indefinitely. Sits beside `sessionTimeout` because the two together
+    /// are the session expiry policy; either one alone leaves a hole.
+    static let maxSessionLifetime: TimeInterval = 8 * 60 * 60
+
     /// NIO-level connection idle timeout in seconds.
     static let connectionIdleTimeout: Int64 = 300
 

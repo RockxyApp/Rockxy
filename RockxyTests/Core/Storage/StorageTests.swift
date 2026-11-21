@@ -105,6 +105,7 @@ struct AppSettingsStorageTests {
         settings.proxyPort = Self.testPort
         settings.autoStartProxy = true
         settings.recordOnLaunch = false
+        settings.automaticallySetSystemProxy = false
         settings.onlyListenOnLocalhost = false
         settings.listenIPv6 = true
         settings.autoSelectPort = true
@@ -127,6 +128,7 @@ struct AppSettingsStorageTests {
         #expect(loaded.proxyPort == Self.testPort)
         #expect(loaded.autoStartProxy == true)
         #expect(loaded.recordOnLaunch == false)
+        #expect(!loaded.automaticallySetSystemProxy)
         #expect(loaded.onlyListenOnLocalhost == false)
         #expect(loaded.listenIPv6 == true)
         #expect(loaded.autoSelectPort == true)
@@ -147,6 +149,21 @@ struct AppSettingsStorageTests {
         #expect(reloaded.lastExportedRootCAPath == nil)
     }
 
+    @Test("Automatic system routing defaults on and persists independently of launch recording")
+    func automaticSystemProxyPersistence() {
+        let cleanup = installSettingsTestGuard()
+        defer { cleanup() }
+        UserDefaults.standard.removeObject(forKey: AutomaticSystemProxyRouting.defaultsKey)
+        #expect(AppSettingsStorage.load().automaticallySetSystemProxy)
+        var settings = AppSettings()
+        settings.recordOnLaunch = true
+        settings.automaticallySetSystemProxy = false
+        AppSettingsStorage.save(settings)
+        let loaded = AppSettingsStorage.load()
+        #expect(loaded.recordOnLaunch)
+        #expect(!loaded.automaticallySetSystemProxy)
+    }
+
     @Test("default values match AppSettings initializer")
     func defaultValues() {
         let defaultSettings = AppSettings()
@@ -154,6 +171,7 @@ struct AppSettingsStorageTests {
         #expect(defaultSettings.recordOnLaunch == true)
         #expect(defaultSettings.onlyListenOnLocalhost == true)
         #expect(defaultSettings.autoStartProxy == false)
+        #expect(defaultSettings.automaticallySetSystemProxy)
         #expect(defaultSettings.listenIPv6 == false)
         #expect(defaultSettings.autoSelectPort == true)
         #expect(defaultSettings.appTheme == .system)
@@ -294,8 +312,6 @@ struct AppSettingsStorageTests {
 
     // MARK: Private
 
-    // swiftlint:disable:next number_separator
     private static let testPort = 8_888
-    // swiftlint:disable:next number_separator
     private static let defaultPort = 9_090
 }

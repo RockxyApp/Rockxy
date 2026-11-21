@@ -190,17 +190,7 @@ nonisolated enum KeychainHelper {
     // MARK: - Generic Secure Data Operations
 
     static func saveSecureData(_ data: Data, service: String, account: String) throws {
-        try deleteSecureData(service: service, account: account)
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
-        ]
-
-        let status = SecItemAdd(query as CFDictionary, nil)
+        let status = KeychainSecureDataWriter.save(data, service: service, account: account)
         guard status == errSecSuccess else {
             logger.error("Failed to save secure data: \(status)")
             throw KeychainError.saveFailed(status)

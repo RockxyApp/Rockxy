@@ -23,6 +23,48 @@ struct ScriptExecutionLedgerTests {
         #expect(ledger.scriptNames(for: third) == ["Mock"])
     }
 
+    @Test("Preview tabs are bounded by bytes as well as by flow count")
+    func previewsAreByteBounded() {
+        // `ScriptPreviewTab` bounds a single tab (8 per panel, 2 panels, 256 KiB of text), so a
+        // count-only cap of 2,048 flows admits ~8 GiB. The byte bound evicts the oldest flows in
+        // the same FIFO order the count cap uses.
+        let ledger = ScriptExecutionLedger(capacity: 64, previewByteCapacity: 4_096)
+        let flows = (0 ..< 8).map { _ in UUID() }
+        let tab = ScriptPreviewTab(
+            title: "Decoded",
+            text: String(repeating: "x", count: 1_024),
+            panel: .request
+        )
+
+        for flow in flows {
+            ledger.recordPreviews([tab], panel: .request, flowID: flow)
+        }
+
+        // 4,096 bytes holds three tabs of 1,031 bytes (1,024 of text plus the title), and the
+        // flow just recorded is never the victim.
+        #expect(ledger.previews(for: flows[7]).count == 1)
+        let retained = flows.filter { !ledger.previews(for: $0).isEmpty }
+        #expect(retained == Array(flows.suffix(3)))
+    }
+
+    @Test("Replacing a panel releases the bytes the previous tabs held")
+    func replacingAPanelReleasesItsBytes() {
+        // The per-flow byte accounting has to be subtracted before the replacement is measured,
+        // or a flow that republishes its panel would evict healthy flows on every hook.
+        let ledger = ScriptExecutionLedger(capacity: 64, previewByteCapacity: 4_096)
+        let busy = UUID()
+        let other = UUID()
+        let large = ScriptPreviewTab(title: "T", text: String(repeating: "x", count: 1_500), panel: .request)
+
+        ledger.recordPreviews([large], panel: .request, flowID: other)
+        for _ in 0 ..< 10 {
+            ledger.recordPreviews([large], panel: .request, flowID: busy)
+        }
+
+        #expect(ledger.previews(for: busy).count == 1)
+        #expect(ledger.previews(for: other).count == 1)
+    }
+
     @Test("The attribution callback stamps script names and persists through session files")
     func attributionCallbackAndCodable() throws {
         let ledger = ScriptExecutionLedger()

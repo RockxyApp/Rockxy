@@ -1040,6 +1040,78 @@ struct FilteringTests {
         #expect(second.filteredTransactions.map(\.id) == [web.id])
     }
 
+    // MARK: - Search Debounce
+
+    @Test("Typing coalesces into one filter pass instead of one per keystroke")
+    func searchTextDebouncesTheFilterPass() async throws {
+        let coordinator = MainContentCoordinator(searchRecomputeDebounce: .milliseconds(50))
+        coordinator.transactions = TestFixtures.makeBulkTransactions(count: 20)
+        coordinator.recomputeFilteredTransactions()
+        let unfilteredCount = coordinator.filteredTransactions.count
+        coordinator.filterCriteria.searchField = .path
+
+        // A burst of keystrokes, the way the search field delivers them.
+        for keystroke in ["/", "/u", "/us", "/use", "/user", "/users"] {
+            coordinator.searchTextDidChange(keystroke)
+        }
+
+        // The text lands at once so the field stays responsive, but the pass over every
+        // captured transaction has not run yet. That is what keeps typing cheap after a
+        // long capture, where the list is far larger than this fixture.
+        #expect(coordinator.filterCriteria.searchText == "/users")
+        #expect(coordinator.filteredTransactions.count == unfilteredCount)
+
+        try await Task.sleep(for: .milliseconds(500))
+
+        // One pass, and it used the final text rather than any intermediate prefix.
+        #expect(coordinator.filteredTransactions.count < unfilteredCount)
+        #expect(!coordinator.filteredTransactions.isEmpty)
+        #expect(coordinator.filteredTransactions.allSatisfy {
+            $0.request.path.lowercased().contains("/users")
+        })
+    }
+
+    /// Guards the invariant that makes row reuse on the filter path correct. Reuse keeps the
+    /// previously projected row whenever the transaction's identity and
+    /// `listPresentationRevision` are unchanged, so anything a row displays must bump that
+    /// revision when it changes. This asserts the no-stale-row contract per mutation class
+    /// rather than that reuse occurred -- reuse is a performance property and belongs to the
+    /// profiler, while a stale row would be a visible defect.
+    @Test("A reused row refreshes when the evidence it displays changes")
+    func reusedRowRefreshesWhenDisplayedEvidenceChanges() throws {
+        let coordinator = makeCoordinator(transactions: TestFixtures.makeBulkTransactions(count: 8))
+        coordinator.filterCriteria.searchField = .path
+        coordinator.searchTextDidChange("/users")
+        coordinator.recomputeFilteredTransactions()
+
+        let target = try #require(coordinator.filteredTransactions.first)
+        let rowID = target.id
+        func row() throws -> RequestListRow {
+            try #require(coordinator.filteredRows.first { $0.id == rowID })
+        }
+
+        // An HTTPS transaction with no recorded disposition reads as decrypted application
+        // traffic, which is what `sslState(for:)` derives for a non-CONNECT capture.
+        #expect(try row().sslState == .secureIntercepted)
+
+        // The hazard reuse was once assumed to have: SSL state is handed to the row
+        // separately, so a late disposition could leave a stale badge. It cannot -- the
+        // property bumps the revision, so the guard rejects the retained row.
+        target.sslCapture = .tunneled
+        coordinator.recomputeFilteredTransactions()
+        #expect(try row().sslState == .secureTunneled)
+
+        // Response evidence is the other class a long capture mutates in place.
+        target.response = TestFixtures.makeResponse(statusCode: 503)
+        coordinator.recomputeFilteredTransactions()
+        #expect(try row().statusCode == 503)
+
+        // A cosmetic flag, to cover the class that does not touch request or response at all.
+        target.isStruckThrough = true
+        coordinator.recomputeFilteredTransactions()
+        #expect(try row().isStruckThrough)
+    }
+
     // MARK: Private
 
     // MARK: - Setup

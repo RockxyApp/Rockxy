@@ -12,6 +12,17 @@ struct BypassProxyListView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
+            if let failure = manager.persistenceFailure {
+                PersistenceFailureBanner(
+                    title: String(
+                        localized: "Couldn't save the Full Proxy Bypass list",
+                        bundle: RockxyLocalization.bundle
+                    ),
+                    reason: failure,
+                    retry: { manager.save() }
+                )
+                Divider()
+            }
             behaviorNotice
             quickAddBar
             tableContent

@@ -154,6 +154,8 @@ struct GeneralSettingsTab: View {
 
     private var generalControlsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
+            AutomaticSystemProxyRoutingControl()
+
             SettingsFieldRow(String(localized: "Port Number:", bundle: RockxyLocalization.bundle)) {
                 TextField("", value: $proxyPort, format: .number.grouping(.never))
                     .textFieldStyle(.roundedBorder)

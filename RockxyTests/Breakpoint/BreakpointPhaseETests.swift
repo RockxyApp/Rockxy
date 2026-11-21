@@ -5,7 +5,9 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct BreakpointPhaseETests {
-    // BP_E1
+    // MARK: Internal
+
+    /// BP_E1
     @Test("matcherReusedForResponsePhase")
     func matcherReusedForResponsePhase() async {
         let engine = RuleEngine()
@@ -18,7 +20,7 @@ struct BreakpointPhaseETests {
         #expect(match != nil)
     }
 
-    // BP_E2a
+    /// BP_E2a
     @Test("statusCodePickerLists13Presets")
     func statusCodePickerLists13Presets() {
         let presets = [200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 500, 502, 503]
@@ -27,7 +29,7 @@ struct BreakpointPhaseETests {
         #expect(Set(presets).contains(503))
     }
 
-    // BP_E2b
+    /// BP_E2b
     @Test("statusCodePickerUpdatesDraft")
     func statusCodePickerUpdatesDraft() async throws {
         let manager = BreakpointManager()
@@ -43,7 +45,10 @@ struct BreakpointPhaseETests {
     @Test("A blank header row from Add Header is not an error and is dropped on apply")
     func blankHeaderRowIsIgnored() async throws {
         let blank = EditableHeader(name: "", value: " ")
-        var draft = BreakpointRequestData.test(headers: [EditableHeader(name: "X-Test", value: "1"), blank], phase: .response)
+        var draft = BreakpointRequestData.test(
+            headers: [EditableHeader(name: "X-Test", value: "1"), blank],
+            phase: .response
+        )
         #expect(draft.executionValidationMessage == nil)
         draft.headers.append(EditableHeader(name: "", value: "orphan value"))
         #expect(draft.executionValidationMessage != nil)
@@ -51,7 +56,10 @@ struct BreakpointPhaseETests {
         let manager = BreakpointManager()
         let harness = BreakpointTestHarness(manager: manager, ruleEngine: RuleEngine())
         let task = Task {
-            await manager.enqueueAndWait(.test(headers: [EditableHeader(name: "X-Test", value: "1"), blank], phase: .response))
+            await manager.enqueueAndWait(.test(
+                headers: [EditableHeader(name: "X-Test", value: "1"), blank],
+                phase: .response
+            ))
         }
         let item = try await harness.awaitNextPause(timeout: 2)
         manager.resolve(id: item.id, decision: .execute)
@@ -73,7 +81,7 @@ struct BreakpointPhaseETests {
         #expect(draft.executionValidationMessage != nil)
     }
 
-    // BP_E3
+    /// BP_E3
     @Test("queryTabHiddenInResponsePhase")
     func queryTabHiddenInResponsePhase() {
         let responseData = BreakpointRequestData.test(url: "https://httpbin.org/get?a=b", phase: .response)
@@ -82,11 +90,11 @@ struct BreakpointPhaseETests {
         #expect(!raw.contains("GET /get?a=b"))
     }
 
-    // BP_E4
+    /// BP_E4
     @Test("templateMenuFiltersToResponseKind")
     func templateMenuFiltersToResponseKind() throws {
         let defaults = try #require(
-            UserDefaults(suiteName: "com.amunx.rockxy.tests.bp.e4.\(UUID().uuidString)")
+            UserDefaults(suiteName: IsolatedDefaultsSuite.uniqueName(prefix: "com.amunx.rockxy.tests.bp.e4."))
         )
         let store = BreakpointTemplateStore(
             defaults: defaults,
@@ -99,7 +107,7 @@ struct BreakpointPhaseETests {
         #expect(store.templates(for: .response).allSatisfy { $0.kind == .response })
     }
 
-    // BP_E5a
+    /// BP_E5a
     @Test("responseStatusEditWritesBack")
     func responseStatusEditWritesBack() throws {
         let draft = BreakpointRequestData.test(statusCode: 401, phase: .response)
@@ -111,7 +119,7 @@ struct BreakpointPhaseETests {
         #expect(updated.statusCode == 200)
     }
 
-    // BP_E5b
+    /// BP_E5b
     @Test("responseHeadersEditWritesBack")
     func responseHeadersEditWritesBack() throws {
         let updated = try BreakpointRawMessage.applying(
@@ -123,7 +131,7 @@ struct BreakpointPhaseETests {
         #expect(updated.headers.first?.value == "edited")
     }
 
-    // BP_E5c
+    /// BP_E5c
     @Test("responseBodyEditWritesBack")
     func responseBodyEditWritesBack() throws {
         let updated = try BreakpointRawMessage.applying(
@@ -134,7 +142,7 @@ struct BreakpointPhaseETests {
         #expect(updated.body == "{\"ok\":true}")
     }
 
-    // BP_E6
+    /// BP_E6
     @Test("executeDeliversEditedResponseToClient")
     func executeDeliversEditedResponseToClient() async throws {
         let upstream = try await BreakpointLocalHTTPServer.start()
@@ -142,12 +150,12 @@ struct BreakpointPhaseETests {
         let harness = try await BreakpointTestHarness.start()
         await harness.addRule(.breakpointTest(
             name: "Response review",
-            matchingRule: await upstream.matchingRule("status/401"),
+            matchingRule: upstream.matchingRule("status/401"),
             phases: .response
         ))
         let session = try await harness.client()
-        async let response = BreakpointTestHarness.dataWithRetry(
-            from: await upstream.url("status/401"),
+        async let response = await BreakpointTestHarness.dataWithRetry(
+            from: upstream.url("status/401"),
             session: session
         )
         let item = try await harness.awaitNextPause(timeout: 8)
@@ -186,8 +194,8 @@ struct BreakpointPhaseETests {
             phases: .response
         ))
         let session = try await harness.client()
-        async let response = BreakpointTestHarness.dataWithRetry(
-            from: await upstream.url("get"),
+        async let response = await BreakpointTestHarness.dataWithRetry(
+            from: upstream.url("get"),
             session: session
         )
 
@@ -224,7 +232,7 @@ struct BreakpointPhaseETests {
         #expect(selected?.id == block.id)
     }
 
-    // BP_E7
+    /// BP_E7
     @Test("response abort returns 503 and retains capture metadata")
     func responseAbortRetainsCaptureMetadata() async throws {
         let upstream = try await BreakpointLocalHTTPServer.start()
@@ -232,12 +240,12 @@ struct BreakpointPhaseETests {
         let harness = try await BreakpointTestHarness.start()
         await harness.addRule(.breakpointTest(
             name: "Abort response review",
-            matchingRule: await upstream.matchingRule("graphql"),
+            matchingRule: upstream.matchingRule("graphql"),
             method: .post,
             phases: .response
         ))
         let session = try await harness.client()
-        var request = URLRequest(url: await upstream.url("graphql"))
+        var request = await URLRequest(url: upstream.url("graphql"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("BreakpointAbortTest/1.0", forHTTPHeaderField: "User-Agent")
@@ -302,9 +310,9 @@ struct BreakpointPhaseETests {
         let matchingRule = await upstream.matchingRule("get")
         await harness.addRule(.breakpointTest(matchingRule: matchingRule, phases: .response))
         let proxyPort = try await harness.startProxy()
-        let client = try BreakpointRawHTTPClient.connect(
+        let client = try await BreakpointRawHTTPClient.connect(
             proxyPort: proxyPort,
-            requestURL: await upstream.url("get")
+            requestURL: upstream.url("get")
         )
 
         let paused = try await harness.awaitNextPause(timeout: 8)
@@ -339,7 +347,9 @@ struct BreakpointPhaseETests {
     private func waitForCapturedRow(
         _ harness: BreakpointTestHarness,
         timeout seconds: TimeInterval
-    ) async throws -> HTTPTransaction {
+    )
+        async throws -> HTTPTransaction
+    {
         let ticks = Int(seconds / 0.01)
         for _ in 0 ..< ticks {
             if let transaction = await harness.lastCapturedRow() {

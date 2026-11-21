@@ -67,7 +67,7 @@ struct WorkspaceLayoutPreferencesTests {
         suiteName: String,
         preferences: WorkspaceLayoutPreferences
     ) {
-        let suiteName = "WorkspaceLayoutPreferencesTests-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "WorkspaceLayoutPreferencesTests-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         return (defaults, suiteName, WorkspaceLayoutPreferences(defaults: defaults))

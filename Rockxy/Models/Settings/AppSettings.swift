@@ -57,6 +57,9 @@ struct AppUISettings: Equatable {
 struct AppSettings {
     var proxyPort: Int = 9_090
     var autoStartProxy: Bool = false
+
+    /// Start/restart may configure macOS routing only when this saved choice is enabled.
+    var automaticallySetSystemProxy: Bool = true
     var recordOnLaunch: Bool = true
     var maxBufferSize: Int = 50_000
     var maxLogBufferSize: Int = 100_000

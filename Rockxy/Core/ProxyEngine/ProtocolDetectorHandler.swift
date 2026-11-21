@@ -32,11 +32,16 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
         connectionLimiter: ConnectionLimiter,
         upstreamProxySnapshotProvider: @escaping @Sendable () -> UpstreamProxyResolvedConfiguration? = { nil },
         rawTunnelConnector: @escaping TLSInterceptHandler.RawTunnelConnector = TLSInterceptHandler.connectRawTunnel,
-        networkProfile: NetworkConditionProfile? = nil
+        networkProfile: NetworkConditionProfile? = nil,
+        connectHost: String? = nil
     ) {
         self.networkProfile = networkProfile
         self.sslHandler = sslHandler
         self.host = host
+        // Resolved by the caller through `UpstreamConnectHost.resolve`, which is also what
+        // reaches `EmulatorHostAlias`. Dialling `host` here instead made this one fallback path
+        // the only place where an emulator's `10.0.2.2` was not mapped back to loopback.
+        self.connectHost = connectHost ?? host
         self.port = port
         self.postHandshake = postHandshake
         self.connectionLimiter = connectionLimiter
@@ -138,6 +143,9 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
     private let networkProfile: NetworkConditionProfile?
     private let sslHandler: NIOSSLServerHandler
     private let host: String
+    /// The address the raw tunnel actually dials; `host` unless DNS Spoofing or the emulator
+    /// loopback alias redirects it.
+    private let connectHost: String
     private let port: Int
     private let postHandshake: PostHandshakeHandler
     private let connectionLimiter: ConnectionLimiter
@@ -186,6 +194,7 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
         context: ChannelHandlerContext
     ) {
         let host = self.host
+        let connectHost = self.connectHost
         let port = self.port
         let channel = context.channel
         let sslHandler = self.sslHandler
@@ -203,7 +212,7 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
         channel.setOption(ChannelOptions.autoRead, value: false).flatMap {
             self.rawTunnelConnector(
                 context.eventLoop,
-                host,
+                connectHost,
                 port,
                 self.upstreamProxySnapshotProvider()
             )
@@ -254,7 +263,7 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
                 self.postHandshake.tunnelConnectionLog = ConnectionLogCapture.failedConnection(
                     host: host,
                     port: port,
-                    connectHost: host,
+                    connectHost: connectHost,
                     error: error
                 )
                 self.postHandshake.recordTunnelFailure(statusCode: 502, statusMessage: "Upstream Connection Failed")

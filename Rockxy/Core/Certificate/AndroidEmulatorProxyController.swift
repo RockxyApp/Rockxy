@@ -289,8 +289,24 @@ struct AndroidEmulatorProxyController: Sendable {
     private let isExecutable: @Sendable (String) -> Bool
 
     /// Fails with the script's own error line when its success marker is missing.
+    ///
+    /// Both markers sit at the *end* of the output: the success marker is the last thing the
+    /// script echoes, and an `errorMarker` line is the last thing it echoes before exiting. A
+    /// 4 KiB head slice therefore read the one window neither can be in once the script has been
+    /// chatty, which reported a *successful* system-trust install as "System trust was not
+    /// applied." with no detail -- on the certificate-trust path a user needs to diagnose. The
+    /// runner already caps each stream at `SimulatorCertificateInstaller.maxCapturedBytes`, so
+    /// scanning what was captured is bounded work and no output budget changes here.
+    ///
+    /// The capture is also cut at a byte bound, so a stream truncated mid-character made the
+    /// UTF-8 decode return nil and collapsed a real reason to `nil` as well. Both markers and
+    /// every message the script can print are ASCII, so a Latin-1 reading of bytes UTF-8 rejects
+    /// still finds them.
     private static func requireMarker(_ marker: String, in output: SimulatorCommandOutput) throws {
-        let text = String(data: output.standardOutput.prefix(4_096), encoding: .utf8) ?? ""
+        let captured = output.standardOutput
+        let text = String(bytes: captured, encoding: .utf8)
+            ?? String(bytes: captured, encoding: .isoLatin1)
+            ?? ""
         guard !text.contains(marker) else {
             return
         }

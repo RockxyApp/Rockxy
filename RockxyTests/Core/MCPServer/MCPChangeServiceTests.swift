@@ -275,7 +275,12 @@ struct MCPChangeServiceTests {
             runOnResponse: true
         )
 
-        let id = try ScriptPluginFactory.create(name: "Demo", source: "function onResponse() {}", behavior: behavior, in: root)
+        let id = try ScriptPluginFactory.create(
+            name: "Demo",
+            source: "function onResponse() {}",
+            behavior: behavior,
+            in: root
+        )
 
         let directory = root.appendingPathComponent(id)
         let manifest = try JSONDecoder().decode(
@@ -304,8 +309,8 @@ struct MCPChangeServiceTests {
         var writable = readOnly
         writable.changeService = fixture.service
 
-        let readOnlyNames = Set(readOnly.listTools().tools.map { $0.name })
-        let writableNames = Set(writable.listTools().tools.map { $0.name })
+        let readOnlyNames = Set(readOnly.listTools().tools.map(\.name))
+        let writableNames = Set(writable.listTools().tools.map(\.name))
         #expect(readOnlyNames.isDisjoint(with: MCPChangeService.toolNames))
         #expect(MCPChangeService.toolNames.isSubset(of: writableNames))
         #expect(Set(MCPChangeToolDefinitions.allTools.map(\.name)) == MCPChangeService.toolNames)
@@ -329,7 +334,7 @@ private struct Fixture {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("mcp-change-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        suiteName = "mcp-change-tests-\(UUID().uuidString)"
+        suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "mcp-change-tests-")
         defaults = try #require(UserDefaults(suiteName: suiteName))
         mutator = RecordingMutator(addResult: addResult)
         control = FakeControl()
@@ -402,15 +407,19 @@ private actor RecordingMutator: MCPRuleMutating {
 // MARK: - RecordingScriptCreator
 
 private actor RecordingScriptCreator: MCPScriptCreating {
+    // MARK: Lifecycle
+
+    init(result: MCPScriptCreationResult) {
+        self.result = result
+    }
+
+    // MARK: Internal
+
     struct Call {
         let name: String
         let source: String
         let behavior: ScriptBehavior
         let enable: Bool
-    }
-
-    init(result: MCPScriptCreationResult) {
-        self.result = result
     }
 
     private(set) var calls: [Call] = []
@@ -421,6 +430,8 @@ private actor RecordingScriptCreator: MCPScriptCreating {
         calls.append(Call(name: name, source: source, behavior: behavior, enable: enable))
         return result
     }
+
+    // MARK: Private
 
     private let result: MCPScriptCreationResult
 }

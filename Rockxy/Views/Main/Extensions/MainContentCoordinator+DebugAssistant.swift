@@ -1243,7 +1243,9 @@ extension MainContentCoordinator {
             return
         }
         for transaction in appended where debugAssistantIndexedTransactionIDs.insert(transaction.id).inserted {
-            debugAssistantTransactionsByHost[transaction.request.host, default: []].append(transaction)
+            let host = transaction.request.host
+            debugAssistantTransactionsByHost[host, default: []].append(transaction)
+            debugAssistantIndexedHostByID[transaction.id] = host
         }
         debugAssistantIndexedLiveCount = transactions.count
         debugAssistantIndexedFavoriteCount = persistedFavorites.count
@@ -1260,13 +1262,17 @@ extension MainContentCoordinator {
         rebuildDebugAssistantTrafficIndex()
     }
 
-    private func rebuildDebugAssistantTrafficIndex() {
+    func rebuildDebugAssistantTrafficIndex() {
         var valuesByHost: [String: [HTTPTransaction]] = [:]
+        var hostByID: [UUID: String] = [:]
         var seen: Set<UUID> = []
         for transaction in transactions + persistedFavorites where seen.insert(transaction.id).inserted {
-            valuesByHost[transaction.request.host, default: []].append(transaction)
+            let host = transaction.request.host
+            valuesByHost[host, default: []].append(transaction)
+            hostByID[transaction.id] = host
         }
         debugAssistantTransactionsByHost = valuesByHost
+        debugAssistantIndexedHostByID = hostByID
         debugAssistantIndexedTransactionIDs = seen
         debugAssistantIndexedLiveCount = transactions.count
         debugAssistantIndexedFavoriteCount = persistedFavorites.count

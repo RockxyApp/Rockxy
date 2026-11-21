@@ -115,6 +115,9 @@ struct SizeFormatterTests {
         case rootNotFound(filePath: String)
     }
 
+    /// The app plus the three targets that ship beside it.
+    private static let sourceDirectories = ["Rockxy", "Shared", "RockxyHelperTool", "RockxyMCP"]
+
     /// Byte counts where `.binary` and `.file` disagree, so the assertions pin the unit system
     /// rather than an exact localized spelling.
     private static let divergentSamples = [1_000, 1_500, 999_999, 1_500_000, 12_345_678]
@@ -198,19 +201,34 @@ struct SizeFormatterTests {
             }
     }
 
+    /// Every shipping Swift source, repo-relative. The helper, the MCP bridge, and the shared
+    /// sources are separate targets that cannot see `SizeFormatter` or `DurationFormatter`, but
+    /// they still write text a person reads, and scanning only `Rockxy/` let a byte count built by
+    /// interpolation in `RockxyHelperTool/` pass while the identical one in the app was caught.
     private static func projectSources() throws -> [(path: String, source: String)] {
-        let root = try resolveProjectRoot().appendingPathComponent("Rockxy")
-        let prefix = root.deletingLastPathComponent().path + "/"
-        let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        let projectRoot = try resolveProjectRoot()
+        let prefix = projectRoot.path + "/"
         var sources: [(path: String, source: String)] = []
-        while let url = enumerator?.nextObject() as? URL {
-            guard url.pathExtension == "swift" else {
+        for directory in sourceDirectories {
+            let root = projectRoot.appendingPathComponent(directory)
+            guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else {
                 continue
             }
-            let resolved = url.resolvingSymlinksInPath().path
-            let path = resolved.hasPrefix(prefix) ? String(resolved.dropFirst(prefix.count)) : resolved
-            try sources.append((path, String(contentsOf: url, encoding: .utf8)))
+            while let url = enumerator.nextObject() as? URL {
+                guard url.pathExtension == "swift" else {
+                    continue
+                }
+                let resolved = url.resolvingSymlinksInPath().path
+                let path = resolved.hasPrefix(prefix) ? String(resolved.dropFirst(prefix.count)) : resolved
+                try sources.append((path, String(contentsOf: url, encoding: .utf8)))
+            }
         }
+        // A directory that is renamed or removed would silently shrink the scan to nothing.
+        #expect(
+            Set(sources.map { $0.path.split(separator: "/").first.map(String.init) ?? "" })
+                == Set(sourceDirectories),
+            "Every scanned directory must contribute sources: \(sourceDirectories)"
+        )
         return sources
     }
 

@@ -106,6 +106,8 @@ struct ProxyToolbarContent: ToolbarContent {
                 },
                 readiness: coordinator.readiness,
                 isSystemProxyConfigured: coordinator.isSystemProxyConfigured,
+                isRestoreRecordUnverified: coordinator.isDirectProxyRecordUnverified,
+                isWatchdogNotRunning: coordinator.isDirectWatchdogNotRunning,
                 onToggleCapture: {
                     if coordinator.isProxyRunning {
                         coordinator.stopProxy()
@@ -145,6 +147,8 @@ struct ProxyToolbarStatusView: View {
             },
             readiness: coordinator.readiness,
             isSystemProxyConfigured: coordinator.isSystemProxyConfigured,
+            isRestoreRecordUnverified: coordinator.isDirectProxyRecordUnverified,
+            isWatchdogNotRunning: coordinator.isDirectWatchdogNotRunning,
             onToggleCapture: {
                 if coordinator.isProxyRunning {
                     coordinator.stopProxy()

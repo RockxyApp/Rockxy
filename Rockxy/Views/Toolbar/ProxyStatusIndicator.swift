@@ -17,6 +17,8 @@ struct ProxyStatusIndicator: View {
     let openUpdates: () -> Void
     let readiness: ReadinessCoordinator
     let isSystemProxyConfigured: Bool
+    var isRestoreRecordUnverified = false
+    var isWatchdogNotRunning = false
     let onToggleCapture: () -> Void
 
     @Binding var showPopover: Bool
@@ -52,6 +54,7 @@ struct ProxyStatusIndicator: View {
             .help(statusHelpText)
             .accessibilityLabel(statusText)
             .accessibilityValue(listenerStatusText)
+            .accessibilityIdentifier("capture.status")
 
             if let updateStatusSummary {
                 Divider()
@@ -73,6 +76,8 @@ struct ProxyStatusIndicator: View {
                 port: port,
                 readiness: readiness,
                 isSystemProxyConfigured: isSystemProxyConfigured,
+                isRestoreRecordUnverified: isRestoreRecordUnverified,
+                isWatchdogNotRunning: isWatchdogNotRunning,
                 onToggleCapture: onToggleCapture,
                 showPopover: $showPopover
             )

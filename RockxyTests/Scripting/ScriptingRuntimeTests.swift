@@ -2,8 +2,12 @@ import Foundation
 @testable import Rockxy
 import Testing
 
+// MARK: - ScriptingRuntimeTests
+
 @Suite(.serialized)
 struct ScriptingRuntimeTests {
+    // MARK: Internal
+
     @Test("SCRIPT_01 scriptMarkedActiveOnlyAfterRuntimeRegistration")
     func scriptMarkedActiveOnlyAfterRuntimeRegistration() async throws {
         let harness = try makeHarness()
@@ -83,7 +87,10 @@ struct ScriptingRuntimeTests {
         await harness.manager.loadAllPlugins()
 
         #expect(harness.manager.hasResponseHookForSnapshot(request: pricingRequest()))
-        #expect(!harness.manager.hasResponseHookForSnapshot(request: pricingRequest(url: "http://127.0.0.1:43211/rockxy-demo/pricing-experiment")))
+        #expect(!harness.manager
+            .hasResponseHookForSnapshot(
+                request: pricingRequest(url: "http://127.0.0.1:43211/rockxy-demo/pricing-experiment")
+            ))
     }
 
     @Test("SCRIPT_06 responseToggleHonoured")
@@ -190,7 +197,12 @@ struct ScriptingRuntimeTests {
     @Test("SCRIPT_10 scriptRegisteredInRuntimeImmediately")
     func scriptRegisteredInRuntimeImmediately() async throws {
         let harness = try makeHarness()
-        try writePlugin(id: "script.save", script: "function onResponse(response) { return response; }", into: harness, enabled: false)
+        try writePlugin(
+            id: "script.save",
+            script: "function onResponse(response) { return response; }",
+            into: harness,
+            enabled: false
+        )
         await harness.manager.loadAllPlugins()
 
         let viewModel = ScriptEditorViewModel(
@@ -221,7 +233,8 @@ struct ScriptingRuntimeTests {
 
         let mutated = await harness.manager.runResponseHook(request: pricingRequest(), response: pricingResponse())
 
-        #expect(jsonBody(mutated) == #"{"experiment":{"bucket":"treatment","paywall":"discount","discountPercent":20}}"#)
+        #expect(jsonBody(mutated) ==
+            #"{"experiment":{"bucket":"treatment","paywall":"discount","discountPercent":20}}"#)
     }
 
     @Test("script-mutated sensitive response body redacts before MCP exposure")
@@ -509,25 +522,6 @@ struct ScriptingRuntimeTests {
         #expect(stringBody(firstOnly) == "a")
     }
 
-    private static let mutationScript = """
-    function onResponse(response) {
-      if (response.request.headers["X-Rockxy-Scenario-Id"] !== "scripted-mock") {
-        return response;
-      }
-
-      var body = JSON.parse(response.body);
-      body.experiment.bucket = "treatment";
-      body.experiment.paywall = "discount";
-      body.experiment.discountPercent = 20;
-
-      response.headers["Content-Type"] = "application/json";
-      response.body = JSON.stringify(body);
-      console.log("Mutated to treatment for run:",
-        response.request.headers["X-Rockxy-Lab-Run-Id"]);
-      return response;
-    }
-    """
-
     @Test("sharedState set in onRequest reaches the same flow's onResponse only")
     func sharedStateFollowsItsOwnFlow() async throws {
         let harness = try makeHarness()
@@ -614,6 +608,27 @@ struct ScriptingRuntimeTests {
         #expect(decoded.toLiveModel().scriptPreviews == transaction.scriptPreviews)
     }
 
+    // MARK: Private
+
+    private static let mutationScript = """
+    function onResponse(response) {
+      if (response.request.headers["X-Rockxy-Scenario-Id"] !== "scripted-mock") {
+        return response;
+      }
+
+      var body = JSON.parse(response.body);
+      body.experiment.bucket = "treatment";
+      body.experiment.paywall = "discount";
+      body.experiment.discountPercent = 20;
+
+      response.headers["Content-Type"] = "application/json";
+      response.body = JSON.stringify(body);
+      console.log("Mutated to treatment for run:",
+        response.request.headers["X-Rockxy-Lab-Run-Id"]);
+      return response;
+    }
+    """
+
     private func graphQLRequest(operation: String) -> HTTPRequestData {
         HTTPRequestData(
             method: "POST",
@@ -632,7 +647,8 @@ struct ScriptingRuntimeTests {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("RockxyScriptingRuntimeTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let defaults = UserDefaults(suiteName: "RockxyScriptingRuntimeTests-\(UUID().uuidString)") ?? .standard
+        let defaults = UserDefaults(suiteName: IsolatedDefaultsSuite
+            .uniqueName(prefix: "RockxyScriptingRuntimeTests-")) ?? .standard
         let discovery = PluginDiscovery(pluginsDirectory: dir, defaults: defaults)
         return ScriptHarness(
             dir: dir,
@@ -672,7 +688,12 @@ struct ScriptingRuntimeTests {
         id: String,
         script: String,
         into harness: ScriptHarness,
-        behavior: ScriptBehavior = ScriptBehavior(matchCondition: nil, runOnRequest: false, runOnResponse: true, runAsMock: false),
+        behavior: ScriptBehavior = ScriptBehavior(
+            matchCondition: nil,
+            runOnRequest: false,
+            runOnResponse: true,
+            runAsMock: false
+        ),
         enabled: Bool = true
     )
         throws
@@ -777,16 +798,24 @@ struct ScriptingRuntimeTests {
     }
 }
 
+// MARK: - ScriptHarness
+
 private struct ScriptHarness {
     let dir: URL
     let defaults: UserDefaults
     let manager: ScriptPluginManager
 }
 
+// MARK: - LockedBool
+
 private final class LockedBool: @unchecked Sendable {
+    // MARK: Lifecycle
+
     init(_ value: Bool) {
         self.storage = value
     }
+
+    // MARK: Internal
 
     var value: Bool {
         get {
@@ -800,6 +829,8 @@ private final class LockedBool: @unchecked Sendable {
             lock.unlock()
         }
     }
+
+    // MARK: Private
 
     private let lock = NSLock()
     private var storage: Bool

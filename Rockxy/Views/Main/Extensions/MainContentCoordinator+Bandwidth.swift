@@ -41,15 +41,32 @@ extension MainContentCoordinator {
         trafficSamples.removeAll { $0.timestamp < windowStart }
 
         guard !trafficSamples.isEmpty else {
-            uploadSpeed = 0
-            downloadSpeed = 0
+            applyInstantaneousSpeeds(upload: 0, download: 0)
             return
         }
 
         // Sum bytes in the 1-second window. Since the window is always 1s,
         // total bytes in window = bytes/second (no division needed).
-        uploadSpeed = trafficSamples.reduce(Int64(0)) { $0 + $1.upload }
-        downloadSpeed = trafficSamples.reduce(Int64(0)) { $0 + $1.download }
+        applyInstantaneousSpeeds(
+            upload: trafficSamples.reduce(Int64(0)) { $0 + $1.upload },
+            download: trafficSamples.reduce(Int64(0)) { $0 + $1.download }
+        )
+    }
+
+    /// Writes the footer speeds only where the value actually moved.
+    ///
+    /// `@Observable` does not dedupe an equal assignment, and the decay timer above runs
+    /// four times a second for as long as the proxy is up. Assigning unconditionally
+    /// therefore invalidated every observer of these two properties at that cadence even
+    /// with no traffic at all -- and the centre pane reads them in the same `body` that
+    /// counts the available rows, so an idle machine kept re-running that count.
+    func applyInstantaneousSpeeds(upload: Int64, download: Int64) {
+        if uploadSpeed != upload {
+            uploadSpeed = upload
+        }
+        if downloadSpeed != download {
+            downloadSpeed = download
+        }
     }
 
     // MARK: - Reset
@@ -58,14 +75,16 @@ extension MainContentCoordinator {
         totalUploadBytes = 0
         totalDownloadBytes = 0
         totalDataSize = 0
-        uploadSpeed = 0
-        downloadSpeed = 0
+        applyInstantaneousSpeeds(upload: 0, download: 0)
         trafficSamples.removeAll()
+        // Both callers -- Clear Session and switching Project -- have just replaced the
+        // retained history, and Clear Session reaches no other point this file owns. See
+        // `rebuildTLSFailureTransactionIDs()` for why the set cannot be left behind.
+        rebuildTLSFailureTransactionIDs()
     }
 
     func resetInstantaneousSpeeds() {
-        uploadSpeed = 0
-        downloadSpeed = 0
+        applyInstantaneousSpeeds(upload: 0, download: 0)
         trafficSamples.removeAll()
     }
 

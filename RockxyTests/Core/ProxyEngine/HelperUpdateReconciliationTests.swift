@@ -828,7 +828,7 @@ struct HelperConvergenceMarkerStoreTests {
     @Test("the marker is namespaced through RockxyIdentity and round-trips only when well formed")
     func markerRoundTripsUnderTheNamespacedKey() throws {
         let identity = RockxyIdentity.current
-        let suiteName = "rockxy.tests.helper-marker.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "rockxy.tests.helper-marker.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 

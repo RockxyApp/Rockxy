@@ -11,6 +11,8 @@ final class WebSocketConnection: @unchecked Sendable {
         self._totalPayloadSize = frames.reduce(0) { $0 + $1.payload.count }
         self._sentPayloadSize = frames.reduce(0) { $0 + ($1.direction == .sent ? $1.payload.count : 0) }
         self._receivedPayloadSize = frames.reduce(0) { $0 + ($1.direction == .received ? $1.payload.count : 0) }
+        self._sentFrameCount = frames.reduce(0) { $0 + ($1.direction == .sent ? 1 : 0) }
+        self._receivedFrameCount = frames.reduce(0) { $0 + ($1.direction == .received ? 1 : 0) }
     }
 
     // MARK: Internal
@@ -39,6 +41,18 @@ final class WebSocketConnection: @unchecked Sendable {
         lock.withLock { _frames.count }
     }
 
+    /// Frame counts by direction, running totals for the same reason the byte totals are:
+    /// `sentFrames`/`receivedFrames` copy the whole frame array under the lock and then filter
+    /// it, and the inspector body re-evaluates on every `webSocketFrameVersion` bump, so a
+    /// header that only wanted a number walked every captured frame.
+    var sentFrameCount: Int {
+        lock.withLock { _sentFrameCount }
+    }
+
+    var receivedFrameCount: Int {
+        lock.withLock { _receivedFrameCount }
+    }
+
     var isCaptureLimitReached: Bool {
         lock.withLock { _isCaptureLimitReached }
     }
@@ -57,15 +71,11 @@ final class WebSocketConnection: @unchecked Sendable {
         }
     }
 
-    @discardableResult
-    func addFrame(_ frame: WebSocketFrameData, maximumTotalPayloadSize: Int) -> Bool {
-        addFrame(
-            frame,
-            maximumTotalPayloadSize: maximumTotalPayloadSize,
-            maximumFrameCount: .max
-        )
-    }
-
+    /// The only bounded capture entry point. The overload that defaulted `maximumFrameCount`
+    /// to `.max` is gone on purpose: the Babylon receiver was its only caller, so a device
+    /// streaming small frames reached roughly 5 million of them -- hundreds of MB of per-frame
+    /// struct overhead -- before the aggregate byte cap could fire. Every caller now states
+    /// both bounds.
     @discardableResult
     func addFrame(
         _ frame: WebSocketFrameData,
@@ -103,17 +113,23 @@ final class WebSocketConnection: @unchecked Sendable {
     private var _totalPayloadSize: Int
     private var _sentPayloadSize: Int
     private var _receivedPayloadSize: Int
+    private var _sentFrameCount: Int
+    private var _receivedFrameCount: Int
     private var _isCaptureLimitReached = false
 
     /// Caller holds `lock`.
     private func appendLocked(_ frame: WebSocketFrameData) {
         _frames.append(frame)
         _totalPayloadSize += frame.payload.count
+        // Only accepted frames reach here, so the per-direction totals can never drift from
+        // `_frames` on a rejection path.
         switch frame.direction {
         case .sent:
             _sentPayloadSize += frame.payload.count
+            _sentFrameCount += 1
         case .received:
             _receivedPayloadSize += frame.payload.count
+            _receivedFrameCount += 1
         }
     }
 }
